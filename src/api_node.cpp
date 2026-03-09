@@ -40,6 +40,9 @@ ApiNode::ApiNode(const rclcpp::NodeOptions &options) : rclcpp_lifecycle::Lifecyc
       real_uav_ = true;
     }
   }
+
+  count_rc_aux_ = 0;
+  last_rc_aux_  = -1.0;
 }
 //}
 
@@ -310,21 +313,24 @@ void ApiNode::subRcPx4(const px4_msgs::msg::ManualControlSetpoint &msg) {
     pub_rc_to_goto_->publish(rc_msg);
   }
 
-  if (msg.aux1 != last_rc_aux_ && msg.aux1) {
+  if (msg.aux1 != last_rc_aux_ && msg.aux1 == 1.0) {
     count_rc_aux_++;
     last_rc_timestamp_ = msg.timestamp;
   }
 
-  if (count_rc_aux_ == 1 && (msg.timestamp - last_rc_timestamp_) / 1000000 > 4.0) {
+  if (count_rc_aux_ == 1 && (msg.timestamp - last_rc_timestamp_) / 1000000 > 0.5) {
     activate_goto_rc_ = !activate_goto_rc_;
-    RCLCPP_INFO(get_logger(), "Activating RC to control the LUS!");
+    RCLCPP_INFO(get_logger(), "%s RC to control the LUS!", activate_goto_rc_ ? "Activating" : "Deactivating");
     count_rc_aux_ = 0;
   }
 
-  if (count_rc_aux_ == 2 && (msg.timestamp - last_rc_timestamp_) / 1000000 > 2.0) {
-    RCLCPP_INFO(get_logger(), "Activating landing via RC");
+  if (count_rc_aux_ == 2 && (msg.timestamp - last_rc_timestamp_) / 1000000 > 1.0) {
+    RCLCPP_INFO(get_logger(), "Calling landing via RC");
     auto request = std::make_shared<std_srvs::srv::Trigger::Request>();
-    clt_land_->async_send_request(request);
+    clt_land_->async_send_request(request, [this](rclcpp::Client<std_srvs::srv::Trigger>::SharedFuture future) {
+      auto response = future.get();
+      RCLCPP_INFO(this->get_logger(), "Response: [%s] %s", response->success ? "Success" : "Failed", response->message.c_str());
+    });
     count_rc_aux_ = 0;
   }
 
