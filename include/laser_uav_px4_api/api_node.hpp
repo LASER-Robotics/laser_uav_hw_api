@@ -69,7 +69,7 @@ private:
   rclcpp::Subscription<px4_msgs::msg::ManualControlSetpoint>::SharedPtr sub_rc_px4_;
   void                                                                  subRcPx4(const px4_msgs::msg::ManualControlSetpoint &msg);
 
-  rclcpp::Publisher<laser_msgs::msg::PoseWithHeading>::SharedPtr pub_rc_to_goto_;
+  rclcpp_lifecycle::LifecyclePublisher<laser_msgs::msg::PoseWithHeading>::SharedPtr pub_rc_to_goto_;
 
   rclcpp::Subscription<px4_msgs::msg::VehicleControlMode>::ConstSharedPtr sub_control_mode_px4_;
   void                                                                    subControlModePx4(const px4_msgs::msg::VehicleControlMode &msg);
@@ -151,6 +151,8 @@ private:
   int    count_rc_aux_;
   int    last_rc_aux_;
   double last_rc_timestamp_;
+
+  bool _rc_aux_logics_;
 
   bool real_uav_{false};
   bool offboard_is_enabled_{false};

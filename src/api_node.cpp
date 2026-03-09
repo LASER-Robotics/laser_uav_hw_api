@@ -9,6 +9,7 @@ ApiNode::ApiNode(const rclcpp::NodeOptions &options) : rclcpp_lifecycle::Lifecyc
   declare_parameter("control_input_mode", rclcpp::ParameterValue(""));
   declare_parameter("rate.pub_offboard_control_mode", rclcpp::ParameterValue(100.0));
   declare_parameter("rate.pub_api_diagnostics", rclcpp::ParameterValue(10.0));
+  declare_parameter("rc.aux_logics", rclcpp::ParameterValue(true));
 
   ned_enu_quaternion_rotation_ = Eigen::Quaterniond(Eigen::AngleAxisd(M_PI_2, Eigen::Vector3d::UnitZ()) * Eigen::AngleAxisd(0, Eigen::Vector3d::UnitY()) *
                                                     Eigen::AngleAxisd(M_PI, Eigen::Vector3d::UnitX()));
@@ -75,6 +76,10 @@ CallbackReturn ApiNode::on_activate([[maybe_unused]] const rclcpp_lifecycle::Sta
   pub_imu_->on_activate();
   pub_garmin_->on_activate();
 
+  if (_rc_aux_logics_) {
+    pub_rc_to_goto_->on_activate();
+  }
+
   if (_control_input_mode_ == "individual_thrust") {
     pub_motor_speed_reference_px4_->on_activate();
   } else if (_control_input_mode_ == "angular_rates_and_thrust") {
@@ -101,6 +106,10 @@ CallbackReturn ApiNode::on_deactivate([[maybe_unused]] const rclcpp_lifecycle::S
   pub_imu_->on_deactivate();
   pub_garmin_->on_deactivate();
   pub_api_diagnostics_->on_deactivate();
+
+  if (_rc_aux_logics_) {
+    pub_rc_to_goto_->on_deactivate();
+  }
 
   if (_control_input_mode_ == "individual_thrust") {
     pub_motor_speed_reference_px4_->on_deactivate();
@@ -138,11 +147,15 @@ CallbackReturn ApiNode::on_cleanup([[maybe_unused]] const rclcpp_lifecycle::Stat
   pub_garmin_.reset();
   pub_api_diagnostics_.reset();
   pub_motor_speed_estimation_.reset();
-  pub_rc_to_goto_.reset();
 
   tmr_pub_offboard_control_mode_px4_.reset();
   tmr_pub_motor_speed_reference_px4_.reset();
   tmr_pub_api_diagnostics_.reset();
+
+  if (_rc_aux_logics_) {
+    sub_rc_px4_.reset();
+    pub_rc_to_goto_.reset();
+  }
 
   if (_control_input_mode_ == "individual_thrust") {
     pub_motor_speed_reference_px4_.reset();
@@ -174,6 +187,7 @@ void ApiNode::getParameters() {
   get_parameter("control_input_mode", _control_input_mode_);
   get_parameter("rate.pub_offboard_control_mode", _rate_pub_offboard_control_mode_px4_);
   get_parameter("rate.pub_api_diagnostics", _rate_pub_api_diagnostics_);
+  get_parameter("rc.aux_logics", _rc_aux_logics_);
 }
 //}
 
@@ -195,8 +209,11 @@ void ApiNode::configPubSub() {
   sub_distance_sensor_px4_ = create_subscription<px4_msgs::msg::DistanceSensor>("distance_sensor_px4_in", rclcpp::SensorDataQoS(),
                                                                                 std::bind(&ApiNode::subDistanceSensorPx4, this, std::placeholders::_1));
 
-  sub_rc_px4_ = create_subscription<px4_msgs::msg::ManualControlSetpoint>("px4_rc_in", rclcpp::SensorDataQoS(),
-                                                                          std::bind(&ApiNode::subRcPx4, this, std::placeholders::_1));
+  if (_rc_aux_logics_) {
+    sub_rc_px4_     = create_subscription<px4_msgs::msg::ManualControlSetpoint>("px4_rc_in", rclcpp::SensorDataQoS(),
+                                                                            std::bind(&ApiNode::subRcPx4, this, std::placeholders::_1));
+    pub_rc_to_goto_ = create_publisher<laser_msgs::msg::PoseWithHeading>("rc_to_goto_out", 10);
+  }
 
   sub_vehicle_status_px4_ = create_subscription<px4_msgs::msg::VehicleStatus>("vehicle_status_px4_in", rclcpp::SensorDataQoS(),
                                                                               std::bind(&ApiNode::subVehicleStatusPx4, this, std::placeholders::_1));
@@ -219,7 +236,6 @@ void ApiNode::configPubSub() {
 
   pub_imu_ = create_publisher<sensor_msgs::msg::Imu>("imu", 10);
 
-  pub_rc_to_goto_ = create_publisher<laser_msgs::msg::PoseWithHeading>("rc_to_goto_out", 10);
 
   pub_garmin_ = create_publisher<sensor_msgs::msg::Range>("garmin", 10);
 
