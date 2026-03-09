@@ -304,7 +304,7 @@ void ApiNode::subRcPx4(const px4_msgs::msg::ManualControlSetpoint &msg) {
     auto rc_msg       = laser_msgs::msg::PoseWithHeading();
     rc_msg.position.x = std::abs(msg.pitch) > 0.4 ? 0.1 * (msg.pitch / std::abs(msg.pitch)) : 0.0;
     rc_msg.position.y = std::abs(msg.roll) > 0.4 ? 0.1 * (msg.roll / std::abs(msg.roll)) : 0.0;
-    rc_msg.position.z = std::abs(msg.throttle) > 0.4 ? 0.1 * (msg.pitch / std::abs(msg.throttle)) : 0.0;
+    rc_msg.position.z = std::abs(msg.throttle) > 0.4 ? 0.1 * (msg.throttle / std::abs(msg.throttle)) : 0.0;
     rc_msg.heading    = std::abs(msg.yaw) > 0.4 ? 0.1 * (msg.yaw / std::abs(msg.yaw)) : 0.0;
 
     pub_rc_to_goto_->publish(rc_msg);
