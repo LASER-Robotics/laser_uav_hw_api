@@ -13,6 +13,7 @@
 #include <laser_msgs/msg/api_px4_diagnostics.hpp>
 #include <laser_msgs/msg/motor_speed.hpp>
 #include <laser_msgs/msg/uav_control_diagnostics.hpp>
+#include <laser_msgs/msg/pose_with_heading.hpp>
 
 #include <std_srvs/srv/trigger.hpp>
 #include <sensor_msgs/msg/imu.hpp>
@@ -31,6 +32,7 @@
 #include <px4_msgs/msg/sensor_gyro.hpp>
 #include <px4_msgs/msg/sensor_accel.hpp>
 #include <px4_msgs/msg/actuator_motors.hpp>
+#include <px4_msgs/msg/manual_control_setpoint.hpp>
 
 using CallbackReturn = rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn;
 
@@ -63,6 +65,11 @@ private:
   void configPubSub();
   void configTimers();
   void configServices();
+
+  rclcpp::Subscription<px4_msgs::msg::ManualControlSetpoint>::SharedPtr sub_rc_px4_;
+  void                                                                  subRcPx4(const px4_msgs::msg::ManualControlSetpoint &msg);
+
+  rclcpp_lifecycle::LifecyclePublisher<laser_msgs::msg::PoseWithHeading>::SharedPtr pub_rc_to_goto_;
 
   rclcpp::Subscription<px4_msgs::msg::VehicleControlMode>::ConstSharedPtr sub_control_mode_px4_;
   void                                                                    subControlModePx4(const px4_msgs::msg::VehicleControlMode &msg);
@@ -119,6 +126,8 @@ private:
   rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr srv_disarm_;
   void srvDisarm(const std::shared_ptr<std_srvs::srv::Trigger::Request> request, std::shared_ptr<std_srvs::srv::Trigger::Response> response);
 
+  rclcpp::Client<std_srvs::srv::Trigger>::SharedPtr clt_land_;
+
   double                                                                              _rate_pub_api_diagnostics_;
   rclcpp_lifecycle::LifecyclePublisher<laser_msgs::msg::ApiPx4Diagnostics>::SharedPtr pub_api_diagnostics_;
   rclcpp::TimerBase::SharedPtr                                                        tmr_pub_api_diagnostics_;
@@ -139,9 +148,16 @@ private:
 
   std::string _control_input_mode_;
 
+  int    count_rc_aux_;
+  int    last_rc_aux_;
+  double last_rc_timestamp_;
+
+  bool _rc_aux_logics_;
+
   bool real_uav_{false};
   bool offboard_is_enabled_{false};
   bool fw_preflight_checks_pass_{false};
+  bool activate_goto_rc_{false};
   bool is_active_{false};
 };
 }  // namespace laser_uav_px4_api

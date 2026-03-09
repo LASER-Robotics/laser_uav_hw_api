@@ -9,6 +9,7 @@ ApiNode::ApiNode(const rclcpp::NodeOptions &options) : rclcpp_lifecycle::Lifecyc
   declare_parameter("control_input_mode", rclcpp::ParameterValue(""));
   declare_parameter("rate.pub_offboard_control_mode", rclcpp::ParameterValue(100.0));
   declare_parameter("rate.pub_api_diagnostics", rclcpp::ParameterValue(10.0));
+  declare_parameter("rc.aux_logics", rclcpp::ParameterValue(true));
 
   ned_enu_quaternion_rotation_ = Eigen::Quaterniond(Eigen::AngleAxisd(M_PI_2, Eigen::Vector3d::UnitZ()) * Eigen::AngleAxisd(0, Eigen::Vector3d::UnitY()) *
                                                     Eigen::AngleAxisd(M_PI, Eigen::Vector3d::UnitX()));
@@ -40,6 +41,9 @@ ApiNode::ApiNode(const rclcpp::NodeOptions &options) : rclcpp_lifecycle::Lifecyc
       real_uav_ = true;
     }
   }
+
+  count_rc_aux_ = 0;
+  last_rc_aux_  = -1.0;
 }
 //}
 
@@ -72,6 +76,10 @@ CallbackReturn ApiNode::on_activate([[maybe_unused]] const rclcpp_lifecycle::Sta
   pub_imu_->on_activate();
   pub_garmin_->on_activate();
 
+  if (_rc_aux_logics_) {
+    pub_rc_to_goto_->on_activate();
+  }
+
   if (_control_input_mode_ == "individual_thrust") {
     pub_motor_speed_reference_px4_->on_activate();
   } else if (_control_input_mode_ == "angular_rates_and_thrust") {
@@ -98,6 +106,10 @@ CallbackReturn ApiNode::on_deactivate([[maybe_unused]] const rclcpp_lifecycle::S
   pub_imu_->on_deactivate();
   pub_garmin_->on_deactivate();
   pub_api_diagnostics_->on_deactivate();
+
+  if (_rc_aux_logics_) {
+    pub_rc_to_goto_->on_deactivate();
+  }
 
   if (_control_input_mode_ == "individual_thrust") {
     pub_motor_speed_reference_px4_->on_deactivate();
@@ -127,16 +139,23 @@ CallbackReturn ApiNode::on_cleanup([[maybe_unused]] const rclcpp_lifecycle::Stat
   sub_vehicle_status_px4_.reset();
   sub_control_mode_px4_.reset();
   sub_control_manager_diagnostics_.reset();
+  sub_esc_status_px4_.reset();
 
   pub_offboard_control_mode_px4_.reset();
   pub_nav_odometry_.reset();
   pub_imu_.reset();
   pub_garmin_.reset();
   pub_api_diagnostics_.reset();
+  pub_motor_speed_estimation_.reset();
 
   tmr_pub_offboard_control_mode_px4_.reset();
   tmr_pub_motor_speed_reference_px4_.reset();
   tmr_pub_api_diagnostics_.reset();
+
+  if (_rc_aux_logics_) {
+    sub_rc_px4_.reset();
+    pub_rc_to_goto_.reset();
+  }
 
   if (_control_input_mode_ == "individual_thrust") {
     pub_motor_speed_reference_px4_.reset();
@@ -168,6 +187,7 @@ void ApiNode::getParameters() {
   get_parameter("control_input_mode", _control_input_mode_);
   get_parameter("rate.pub_offboard_control_mode", _rate_pub_offboard_control_mode_px4_);
   get_parameter("rate.pub_api_diagnostics", _rate_pub_api_diagnostics_);
+  get_parameter("rc.aux_logics", _rc_aux_logics_);
 }
 //}
 
@@ -189,6 +209,12 @@ void ApiNode::configPubSub() {
   sub_distance_sensor_px4_ = create_subscription<px4_msgs::msg::DistanceSensor>("distance_sensor_px4_in", rclcpp::SensorDataQoS(),
                                                                                 std::bind(&ApiNode::subDistanceSensorPx4, this, std::placeholders::_1));
 
+  if (_rc_aux_logics_) {
+    sub_rc_px4_     = create_subscription<px4_msgs::msg::ManualControlSetpoint>("px4_rc_in", rclcpp::SensorDataQoS(),
+                                                                            std::bind(&ApiNode::subRcPx4, this, std::placeholders::_1));
+    pub_rc_to_goto_ = create_publisher<laser_msgs::msg::PoseWithHeading>("rc_to_goto_out", 10);
+  }
+
   sub_vehicle_status_px4_ = create_subscription<px4_msgs::msg::VehicleStatus>("vehicle_status_px4_in", rclcpp::SensorDataQoS(),
                                                                               std::bind(&ApiNode::subVehicleStatusPx4, this, std::placeholders::_1));
   sub_control_mode_px4_   = create_subscription<px4_msgs::msg::VehicleControlMode>("vehicle_control_mode_px4_in", rclcpp::SensorDataQoS(),
@@ -202,16 +228,20 @@ void ApiNode::configPubSub() {
   pub_vehicle_command_px4_       = create_publisher<px4_msgs::msg::VehicleCommand>("vehicle_command_px4_out", 10);
   pub_offboard_control_mode_px4_ = create_publisher<px4_msgs::msg::OffboardControlMode>("offboard_control_mode_px4_out", 10);
 
+
+  // Pubs and Subs for System topics
   pub_api_diagnostics_ = create_publisher<laser_msgs::msg::ApiPx4Diagnostics>("api_diagnostics", 10);
 
   pub_nav_odometry_ = create_publisher<nav_msgs::msg::Odometry>("odometry", 10);
 
   pub_imu_ = create_publisher<sensor_msgs::msg::Imu>("imu", 10);
 
+
   pub_garmin_ = create_publisher<sensor_msgs::msg::Range>("garmin", 10);
 
   sub_control_manager_diagnostics_ = create_subscription<laser_msgs::msg::UavControlDiagnostics>(
       "control_manager_diagnostics_in", 1, std::bind(&ApiNode::subControlManagerDiagnostics, this, std::placeholders::_1));
+  pub_motor_speed_estimation_ = create_publisher<laser_msgs::msg::MotorSpeed>("motor_speed_estimation_out", 10);
 
   if (_control_input_mode_ == "individual_thrust") {
     pub_motor_speed_reference_px4_ = create_publisher<px4_msgs::msg::ActuatorMotors>("motor_speed_reference_px4_out", 10);
@@ -246,6 +276,7 @@ void ApiNode::configServices() {
 
   srv_arm_    = create_service<std_srvs::srv::Trigger>("arm", std::bind(&ApiNode::srvArm, this, std::placeholders::_1, std::placeholders::_2));
   srv_disarm_ = create_service<std_srvs::srv::Trigger>("disarm", std::bind(&ApiNode::srvDisarm, this, std::placeholders::_1, std::placeholders::_2));
+  clt_land_   = create_client<std_srvs::srv::Trigger>("land");
 }
 //}
 
@@ -279,6 +310,47 @@ void ApiNode::subEscStatusPx4(const px4_msgs::msg::EscStatus &msg) {
   motor_speed_estimation.unit_of_measurement = "rad/s";
 
   pub_motor_speed_estimation_->publish(motor_speed_estimation);
+}
+//}
+
+/* subRcPx4() //{ */
+void ApiNode::subRcPx4(const px4_msgs::msg::ManualControlSetpoint &msg) {
+  if (!is_active_) {
+    return;
+  }
+
+  if (activate_goto_rc_) {
+    auto rc_msg       = laser_msgs::msg::PoseWithHeading();
+    rc_msg.position.x = std::abs(msg.pitch) > 0.4 ? 0.1 * (msg.pitch / std::abs(msg.pitch)) : 0.0;
+    rc_msg.position.y = std::abs(msg.roll) > 0.4 ? 0.1 * (msg.roll / std::abs(msg.roll)) : 0.0;
+    rc_msg.position.z = std::abs(msg.throttle) > 0.4 ? 0.1 * (msg.throttle / std::abs(msg.throttle)) : 0.0;
+    rc_msg.heading    = std::abs(msg.yaw) > 0.4 ? 0.1 * (msg.yaw / std::abs(msg.yaw)) : 0.0;
+
+    pub_rc_to_goto_->publish(rc_msg);
+  }
+
+  if (msg.aux1 != last_rc_aux_ && msg.aux1 == 1.0) {
+    count_rc_aux_++;
+    last_rc_timestamp_ = msg.timestamp;
+  }
+
+  if (count_rc_aux_ == 1 && (msg.timestamp - last_rc_timestamp_) / 1000000 > 0.5) {
+    activate_goto_rc_ = !activate_goto_rc_;
+    RCLCPP_INFO(get_logger(), "%s RC to control the LUS!", activate_goto_rc_ ? "Activating" : "Deactivating");
+    count_rc_aux_ = 0;
+  }
+
+  if (count_rc_aux_ == 2 && (msg.timestamp - last_rc_timestamp_) / 1000000 > 1.0) {
+    RCLCPP_INFO(get_logger(), "Calling landing via RC");
+    auto request = std::make_shared<std_srvs::srv::Trigger::Request>();
+    clt_land_->async_send_request(request, [this](rclcpp::Client<std_srvs::srv::Trigger>::SharedFuture future) {
+      auto response = future.get();
+      RCLCPP_INFO(this->get_logger(), "Response: [%s] %s", response->success ? "Success" : "Failed", response->message.c_str());
+    });
+    count_rc_aux_ = 0;
+  }
+
+  last_rc_aux_ = msg.aux1;
 }
 //}
 

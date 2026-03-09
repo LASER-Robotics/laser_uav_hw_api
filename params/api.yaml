@@ -5,3 +5,6 @@
       pub_api_diagnostic: 10.0
 
     control_input_mode: "individual_thrust" # individual_thrust or angular_rates_and_thrust
+
+    rc:
+      aux_logics: true

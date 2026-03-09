@@ -72,11 +72,14 @@ def generate_launch_description():
             ('/' + uav_name + '/garmin', '/' + uav_name + '/px4_api/garmin'),
             ('/' + uav_name + '/arm', '/' + uav_name + '/px4_api/arm'),
             ('/' + uav_name + '/disarm', '/' + uav_name + '/px4_api/disarm'),
+            ('/' + uav_name + '/land', '/' + uav_name + '/control_manager/land'),
             ('/' + uav_name + '/api_diagnostics', '/' + uav_name + '/px4_api/diagnostics'),
             ('/' + uav_name + '/motor_speed_estimation_out', '/' + uav_name + '/px4_api/motor_speed_estimated'),
             ('/' + uav_name + '/motor_speed_reference_in', '/' + uav_name + '/control_manager/motor_speed_reference'),
             ('/' + uav_name + '/attitude_rates_thrust_in', '/' + uav_name + '/control_manager/attitude_rates_thrust'),
             ('/' + uav_name + '/esc_status_px4_in', '/' + uav_name + '/fmu/out/esc_status'),
+            ('/' + uav_name + '/px4_rc_in', '/' + uav_name + '/fmu/out/manual_control_setpoint'),
+            ('/' + uav_name + '/rc_to_goto_out', '/' + uav_name + '/control_manager/goto_relative'),
         ]
     )
 
