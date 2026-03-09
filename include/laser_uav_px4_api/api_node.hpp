@@ -126,6 +126,8 @@ private:
   rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr srv_disarm_;
   void srvDisarm(const std::shared_ptr<std_srvs::srv::Trigger::Request> request, std::shared_ptr<std_srvs::srv::Trigger::Response> response);
 
+  rclcpp::Client<std_srvs::srv::Trigger>::SharedPtr clt_land_;
+
   double                                                                              _rate_pub_api_diagnostics_;
   rclcpp_lifecycle::LifecyclePublisher<laser_msgs::msg::ApiPx4Diagnostics>::SharedPtr pub_api_diagnostics_;
   rclcpp::TimerBase::SharedPtr                                                        tmr_pub_api_diagnostics_;
@@ -146,13 +148,14 @@ private:
 
   std::string _control_input_mode_;
 
-  int count_rc_aux_;
-  int last_rc_aux_;
+  int    count_rc_aux_;
+  int    last_rc_aux_;
   double last_rc_timestamp_;
 
   bool real_uav_{false};
   bool offboard_is_enabled_{false};
   bool fw_preflight_checks_pass_{false};
+  bool activate_goto_rc_{false};
   bool is_active_{false};
 };
 }  // namespace laser_uav_px4_api

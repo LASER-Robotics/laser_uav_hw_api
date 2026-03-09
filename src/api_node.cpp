@@ -192,7 +192,8 @@ void ApiNode::configPubSub() {
   sub_distance_sensor_px4_ = create_subscription<px4_msgs::msg::DistanceSensor>("distance_sensor_px4_in", rclcpp::SensorDataQoS(),
                                                                                 std::bind(&ApiNode::subDistanceSensorPx4, this, std::placeholders::_1));
 
-  sub_rc_px4_ = create_subscription<px4_msgs::msg::ManualControlSetpoint>("px4_rc_in", rclcpp::SensorDataQoS(), std::bind(&ApiNode::subRcPx4, this, std::placeholders::_1));
+  sub_rc_px4_ = create_subscription<px4_msgs::msg::ManualControlSetpoint>("px4_rc_in", rclcpp::SensorDataQoS(),
+                                                                          std::bind(&ApiNode::subRcPx4, this, std::placeholders::_1));
 
   sub_vehicle_status_px4_ = create_subscription<px4_msgs::msg::VehicleStatus>("vehicle_status_px4_in", rclcpp::SensorDataQoS(),
                                                                               std::bind(&ApiNode::subVehicleStatusPx4, this, std::placeholders::_1));
@@ -256,6 +257,7 @@ void ApiNode::configServices() {
 
   srv_arm_    = create_service<std_srvs::srv::Trigger>("arm", std::bind(&ApiNode::srvArm, this, std::placeholders::_1, std::placeholders::_2));
   srv_disarm_ = create_service<std_srvs::srv::Trigger>("disarm", std::bind(&ApiNode::srvDisarm, this, std::placeholders::_1, std::placeholders::_2));
+  clt_land_   = create_client<std_srvs::srv::Trigger>("land");
 }
 //}
 
@@ -297,34 +299,36 @@ void ApiNode::subRcPx4(const px4_msgs::msg::ManualControlSetpoint &msg) {
   if (!is_active_) {
     return;
   }
-  /* if (active_goto_rc_) { */
-  /*   auto rc_msg       = laser_msgs::msg::PoseWithHeading(); */
-  /*   rc_msg.position.x = msg.pitch; */
-  /*   rc_msg.position.y = msg.roll; */
-  /*   rc_msg.position.z = msg.throttle; */
-  /*   rc_msg.heading    = msg.yaw; */
 
-  /*   pub_rc_to_goto_->publish(rc_msg); */
-  /* } */
+  if (activate_goto_rc_) {
+    auto rc_msg       = laser_msgs::msg::PoseWithHeading();
+    rc_msg.position.x = std::abs(msg.pitch) > 0.4 ? 0.1 * (msg.pitch / std::abs(msg.pitch)) : 0.0;
+    rc_msg.position.y = std::abs(msg.roll) > 0.4 ? 0.1 * (msg.roll / std::abs(msg.roll)) : 0.0;
+    rc_msg.position.z = std::abs(msg.throttle) > 0.4 ? 0.1 * (msg.pitch / std::abs(msg.throttle)) : 0.0;
+    rc_msg.heading    = std::abs(msg.yaw) > 0.4 ? 0.1 * (msg.yaw / std::abs(msg.yaw)) : 0.0;
+
+    pub_rc_to_goto_->publish(rc_msg);
+  }
 
   if (msg.aux1 != last_rc_aux_ && msg.aux1) {
     count_rc_aux_++;
     last_rc_timestamp_ = msg.timestamp;
   }
 
-  std::cout << (msg.timestamp - last_rc_timestamp_) / 1000000 << std::endl;
-  if (count_rc_aux_ == 1 && rclcpp::Time(msg.timestamp - last_rc_timestamp_).seconds() > 1) {
-    /* active_goto_rc_ = !active_goto_rc_; */
-    std::cout << "ACTIVE GOTO" << std::endl;
+  if (count_rc_aux_ == 1 && (msg.timestamp - last_rc_timestamp_) / 1000000 > 4.0) {
+    activate_goto_rc_ = !activate_goto_rc_;
+    RCLCPP_INFO(get_logger(), "Activating RC to control the LUS!");
     count_rc_aux_ = 0;
   }
 
-  if (count_rc_aux_ == 2 && rclcpp::Time(msg.timestamp - last_rc_timestamp_).seconds() > 2) {
-    std::cout << "CALL LAND" << std::endl;
+  if (count_rc_aux_ == 2 && (msg.timestamp - last_rc_timestamp_) / 1000000 > 2.0) {
+    RCLCPP_INFO(get_logger(), "Activating landing via RC");
+    auto request = std::make_shared<std_srvs::srv::Trigger::Request>();
+    clt_land_->async_send_request(request);
     count_rc_aux_ = 0;
   }
 
-  last_rc_aux_       = msg.aux1;
+  last_rc_aux_ = msg.aux1;
 }
 //}
 
