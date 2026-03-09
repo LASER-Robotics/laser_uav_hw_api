@@ -309,21 +309,22 @@ void ApiNode::subRcPx4(const px4_msgs::msg::ManualControlSetpoint &msg) {
 
   if (msg.aux1 != last_rc_aux_ && msg.aux1) {
     count_rc_aux_++;
+    last_rc_timestamp_ = msg.timestamp;
   }
 
-  if (count_rc_aux_ == 1 && msg.timestamp - last_rc_timestamp_ > 0.1) {
+  std::cout << (msg.timestamp - last_rc_timestamp_) / 1000000 << std::endl;
+  if (count_rc_aux_ == 1 && rclcpp::Time(msg.timestamp - last_rc_timestamp_).seconds() > 1) {
     /* active_goto_rc_ = !active_goto_rc_; */
     std::cout << "ACTIVE GOTO" << std::endl;
     count_rc_aux_ = 0;
   }
 
-  if (count_rc_aux_ == 2 && msg.timestamp - last_rc_timestamp_ > 0.2) {
+  if (count_rc_aux_ == 2 && rclcpp::Time(msg.timestamp - last_rc_timestamp_).seconds() > 2) {
     std::cout << "CALL LAND" << std::endl;
     count_rc_aux_ = 0;
   }
 
   last_rc_aux_       = msg.aux1;
-  last_rc_timestamp_ = msg.timestamp;
 }
 //}
 
