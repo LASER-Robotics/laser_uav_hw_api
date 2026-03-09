@@ -192,7 +192,7 @@ void ApiNode::configPubSub() {
   sub_distance_sensor_px4_ = create_subscription<px4_msgs::msg::DistanceSensor>("distance_sensor_px4_in", rclcpp::SensorDataQoS(),
                                                                                 std::bind(&ApiNode::subDistanceSensorPx4, this, std::placeholders::_1));
 
-  sub_rc_px4_ = create_subscription<px4_msgs::msg::ManualControlSetpoint>("px4_rc_in", 10, std::bind(&ApiNode::subRcPx4, this, std::placeholders::_1));
+  sub_rc_px4_ = create_subscription<px4_msgs::msg::ManualControlSetpoint>("px4_rc_in", rclcpp::SensorDataQoS(), std::bind(&ApiNode::subRcPx4, this, std::placeholders::_1));
 
   sub_vehicle_status_px4_ = create_subscription<px4_msgs::msg::VehicleStatus>("vehicle_status_px4_in", rclcpp::SensorDataQoS(),
                                                                               std::bind(&ApiNode::subVehicleStatusPx4, this, std::placeholders::_1));
@@ -294,6 +294,9 @@ void ApiNode::subEscStatusPx4(const px4_msgs::msg::EscStatus &msg) {
 
 /* subRcPx4() //{ */
 void ApiNode::subRcPx4(const px4_msgs::msg::ManualControlSetpoint &msg) {
+  if (!is_active_) {
+    return;
+  }
   /* if (active_goto_rc_) { */
   /*   auto rc_msg       = laser_msgs::msg::PoseWithHeading(); */
   /*   rc_msg.position.x = msg.pitch; */
