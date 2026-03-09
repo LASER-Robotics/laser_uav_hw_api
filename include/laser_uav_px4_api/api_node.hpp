@@ -66,7 +66,7 @@ private:
   void configTimers();
   void configServices();
 
-  rclcpp::Subscription<px4_msgs::msg::ManualControlSetpoint>::SharedPtr sub_px4_rc_;
+  rclcpp::Subscription<px4_msgs::msg::ManualControlSetpoint>::SharedPtr sub_rc_px4_;
   void                                                                  subRcPx4(const px4_msgs::msg::ManualControlSetpoint &msg);
 
   rclcpp::Publisher<laser_msgs::msg::PoseWithHeading>::SharedPtr pub_rc_to_goto_;
@@ -145,6 +145,10 @@ private:
   int target_system_;
 
   std::string _control_input_mode_;
+
+  int count_rc_aux_;
+  int last_rc_aux_;
+  double last_rc_timestamp_;
 
   bool real_uav_{false};
   bool offboard_is_enabled_{false};

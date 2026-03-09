@@ -208,13 +208,12 @@ void ApiNode::configPubSub() {
   pub_offboard_control_mode_px4_ = create_publisher<px4_msgs::msg::OffboardControlMode>("offboard_control_mode_px4_out", 10);
 
 
-
   // Pubs and Subs for System topics
   pub_api_diagnostics_ = create_publisher<laser_msgs::msg::ApiPx4Diagnostics>("api_diagnostics", 10);
 
   pub_nav_odometry_ = create_publisher<nav_msgs::msg::Odometry>("odometry", 10);
 
-  pub_imu_    = create_publisher<sensor_msgs::msg::Imu>("imu", 10);
+  pub_imu_ = create_publisher<sensor_msgs::msg::Imu>("imu", 10);
 
   pub_rc_to_goto_ = create_publisher<laser_msgs::msg::PoseWithHeading>("rc_to_goto_out", 10);
 
@@ -295,15 +294,33 @@ void ApiNode::subEscStatusPx4(const px4_msgs::msg::EscStatus &msg) {
 
 /* subRcPx4() //{ */
 void ApiNode::subRcPx4(const px4_msgs::msg::ManualControlSetpoint &msg) {
-  if (msg.aux1 > 0.5f) {
-    auto rc_msg       = laser_msgs::msg::PoseWithHeading();
-    rc_msg.position.x = msg.pitch;
-    rc_msg.position.y = msg.roll;
-    rc_msg.position.z = msg.throttle;
-    rc_msg.heading    = msg.yaw;
+  /* if (active_goto_rc_) { */
+  /*   auto rc_msg       = laser_msgs::msg::PoseWithHeading(); */
+  /*   rc_msg.position.x = msg.pitch; */
+  /*   rc_msg.position.y = msg.roll; */
+  /*   rc_msg.position.z = msg.throttle; */
+  /*   rc_msg.heading    = msg.yaw; */
 
-    pub_rc_to_goto_->publish(rc_msg);
+  /*   pub_rc_to_goto_->publish(rc_msg); */
+  /* } */
+
+  if (msg.aux1 != last_rc_aux_ && msg.aux1) {
+    count_rc_aux_++;
   }
+
+  if (count_rc_aux_ == 1 && msg.timestamp - last_rc_timestamp_ > 0.1) {
+    /* active_goto_rc_ = !active_goto_rc_; */
+    std::cout << "ACTIVE GOTO" << std::endl;
+    count_rc_aux_ = 0;
+  }
+
+  if (count_rc_aux_ == 2 && msg.timestamp - last_rc_timestamp_ > 0.2) {
+    std::cout << "CALL LAND" << std::endl;
+    count_rc_aux_ = 0;
+  }
+
+  last_rc_aux_       = msg.aux1;
+  last_rc_timestamp_ = msg.timestamp;
 }
 //}
 
