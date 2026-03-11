@@ -442,6 +442,24 @@ void ApiNode::subVehicleOdometryPx4(const px4_msgs::msg::VehicleOdometry &msg) {
     return;
   }
 
+  if (!has_px4_odometry_offset_) {
+    Eigen::Vector3d ned_to_enu_tf(msg.position[0], msg.position[1], msg.position[2]);
+    ned_to_enu_tf = enuToNed(ned_to_enu_tf);
+
+    position_offset_.x = ned_to_enu_tf(0);
+    position_offset_.y = ned_to_enu_tf(1);
+    position_offset_.z = ned_to_enu_tf(2);
+
+    Eigen::Quaterniond ned_to_enu_orientation_tf(msg.q[0], msg.q[1], msg.q[2], msg.q[3]);
+
+    quaternion_offset_ = enuToNedOrientation(ned_to_enu_orientation_tf);
+    quaternion_offset_ = quaternion_offset_.normalized();
+    quaternion_offset_.coeffs() *= -1;
+
+    has_px4_odometry_offset_ = true;
+    return;
+  }
+
   nav_msgs::msg::Odometry current_nav_odometry{};
   current_nav_odometry.header.frame_id = "odom";
   current_nav_odometry.header.stamp    = get_clock()->now();
@@ -450,14 +468,15 @@ void ApiNode::subVehicleOdometryPx4(const px4_msgs::msg::VehicleOdometry &msg) {
   Eigen::Vector3d ned_to_enu_tf(msg.position[0], msg.position[1], msg.position[2]);
   ned_to_enu_tf = enuToNed(ned_to_enu_tf);
 
-  current_nav_odometry.pose.pose.position.x = ned_to_enu_tf(0);
-  current_nav_odometry.pose.pose.position.y = ned_to_enu_tf(1);
-  current_nav_odometry.pose.pose.position.z = ned_to_enu_tf(2);
+  current_nav_odometry.pose.pose.position.x = ned_to_enu_tf(0) - position_offset_.x;
+  current_nav_odometry.pose.pose.position.y = ned_to_enu_tf(1) - position_offset_.y;
+  current_nav_odometry.pose.pose.position.z = ned_to_enu_tf(2) - position_offset_.z;
 
   Eigen::Quaterniond ned_to_enu_orientation_tf(msg.q[0], msg.q[1], msg.q[2], msg.q[3]);
   ned_to_enu_orientation_tf = enuToNedOrientation(ned_to_enu_orientation_tf);
   ned_to_enu_orientation_tf = ned_to_enu_orientation_tf.normalized();
   ned_to_enu_orientation_tf.coeffs() *= -1;
+  ned_to_enu_orientation_tf = quaternion_offset_.inverse() * ned_to_enu_orientation_tf;
 
   // --- Multiply by -1 for adjust rotation
   current_nav_odometry.pose.pose.orientation.x = ned_to_enu_orientation_tf.x();

@@ -144,6 +144,9 @@ private:
   laser_msgs::msg::UavControlDiagnostics control_manager_diagnostics_;
   px4_msgs::msg::ActuatorMotors          actuator_motors_reference_;
 
+  geometry_msgs::msg::Point position_offset_;
+  Eigen::Quaterniond        quaternion_offset_;
+
   int target_system_;
 
   std::string _control_input_mode_;
@@ -154,6 +157,7 @@ private:
 
   bool _rc_aux_logics_;
 
+  bool has_px4_odometry_offset_{false};
   bool real_uav_{false};
   bool offboard_is_enabled_{false};
   bool fw_preflight_checks_pass_{false};
