@@ -300,49 +300,27 @@ void ApApiNode::subEstimatedPoseAp(const geometry_msgs::msg::PoseStamped &msg) {
   current_nav_odometry.header.stamp    = get_clock()->now();
   current_nav_odometry.child_frame_id  = "fcu";
 
-  Eigen::Vector3d ned_to_enu_tf(msg.pose.position.x, msg.pose.position.y, msg.pose.position.z);
-  ned_to_enu_tf = enuToNed(ned_to_enu_tf);
+  current_nav_odometry.pose.pose = msg.pose;
 
-  current_nav_odometry.pose.pose.position.x = ned_to_enu_tf(0);
-  current_nav_odometry.pose.pose.position.y = -ned_to_enu_tf(1);
-  current_nav_odometry.pose.pose.position.z = ned_to_enu_tf(2);
+  Eigen::Quaterniond q(msg.pose.orientation.w, msg.pose.orientation.x, msg.pose.orientation.y, msg.pose.orientation.z);
 
-  Eigen::Quaterniond ned_to_enu_orientation_tf(msg.pose.orientation.w, msg.pose.orientation.x, msg.pose.orientation.y, msg.pose.orientation.z);
-  ned_to_enu_orientation_tf = enuToNedOrientation(ned_to_enu_orientation_tf);
-  ned_to_enu_orientation_tf = ned_to_enu_orientation_tf.normalized();
-  ned_to_enu_orientation_tf.coeffs() *= -1;
+  Eigen::Vector3d twist_body_frame;
+  twist_body_frame(0) = twist_stamped_ap_.twist.linear.x;
+  twist_body_frame(1) = twist_stamped_ap_.twist.linear.y;
+  twist_body_frame(2) = twist_stamped_ap_.twist.linear.z;
+  q.normalize();
+  twist_body_frame = q.conjugate().toRotationMatrix() * twist_body_frame;
 
-  // --- Multiply by -1 for adjust rotation
-  current_nav_odometry.pose.pose.orientation.x = ned_to_enu_orientation_tf.x();
-  current_nav_odometry.pose.pose.orientation.y = ned_to_enu_orientation_tf.y();
-  current_nav_odometry.pose.pose.orientation.z = ned_to_enu_orientation_tf.z();
-  current_nav_odometry.pose.pose.orientation.w = ned_to_enu_orientation_tf.w();
+  current_nav_odometry.twist.twist.linear.x = twist_body_frame(0);
+  current_nav_odometry.twist.twist.linear.y = twist_body_frame(1);
+  current_nav_odometry.twist.twist.linear.z = twist_body_frame(2);
 
-  /* current_nav_odometry.pose.covariance = {msg.position_variance[0],    0, 0, 0, 0, 0, 0, msg.position_variance[1],    0, 0, 0, 0, 0, 0, */
-  /*                                         msg.position_variance[2],    0, 0, 0, 0, 0, 0, msg.orientation_variance[0], 0, 0, 0, 0, 0, 0, */
-  /*                                         msg.orientation_variance[1], 0, 0, 0, 0, 0, 0, msg.orientation_variance[2]}; */
+  Eigen::Vector3d flu_to_frd;
+  flu_to_frd << twist_stamped_ap_.twist.angular.x, twist_stamped_ap_.twist.angular.y, twist_stamped_ap_.twist.angular.z;
 
-  ned_to_enu_tf(0) = twist_stamped_ap_.twist.linear.x;
-  ned_to_enu_tf(1) = twist_stamped_ap_.twist.linear.y;
-  ned_to_enu_tf(2) = twist_stamped_ap_.twist.linear.z;
-  ned_to_enu_tf    = enuToNed(ned_to_enu_tf);
-  ned_to_enu_tf    = ned_to_enu_orientation_tf.conjugate().normalized().toRotationMatrix() * ned_to_enu_tf;
-
-  current_nav_odometry.twist.twist.linear.x = ned_to_enu_tf(0);
-  current_nav_odometry.twist.twist.linear.y = -ned_to_enu_tf(1);
-  current_nav_odometry.twist.twist.linear.z = ned_to_enu_tf(2);
-
-  Eigen::Vector3d frd_to_flu;
-  frd_to_flu << twist_stamped_ap_.twist.angular.x, twist_stamped_ap_.twist.angular.y, twist_stamped_ap_.twist.angular.z;
-  frd_to_flu = frdToFlu(frd_to_flu);
-
-  current_nav_odometry.twist.twist.angular.x = frd_to_flu(0);
-  current_nav_odometry.twist.twist.angular.y = frd_to_flu(1);
-  current_nav_odometry.twist.twist.angular.z = frd_to_flu(2);
-
-  /* current_nav_odometry.twist.covariance = {msg.velocity_variance[0], 0, 0, 0, 0, 0, 0, msg.velocity_variance[1], 0, 0, 0, 0, 0, 0, */
-  /*                                          msg.velocity_variance[2], 0, 0, 0, 0, 0, 0, msg.velocity_variance[0], 0, 0, 0, 0, 0, 0, */
-  /*                                          msg.velocity_variance[1], 0, 0, 0, 0, 0, 0, msg.velocity_variance[2]}; */
+  current_nav_odometry.twist.twist.angular.x = flu_to_frd(0);
+  current_nav_odometry.twist.twist.angular.y = flu_to_frd(1);
+  current_nav_odometry.twist.twist.angular.z = flu_to_frd(2);
 
   pub_nav_odometry_->publish(current_nav_odometry);
 }
@@ -446,15 +424,10 @@ void ApApiNode::subAttitudeRatesAndThrustReference(const laser_msgs::msg::Attitu
   flu_to_frd << msg.roll_rate, msg.pitch_rate, msg.yaw_rate;
   flu_to_frd = frdToFlu(flu_to_frd);
 
-  /* attitude_rates_reference.body_rate.x = flu_to_frd(0); */
-  /* attitude_rates_reference.body_rate.y = flu_to_frd(1); */
-  /* attitude_rates_reference.body_rate.z = flu_to_frd(2); */
-
-  attitude_rates_reference.body_rate.x = msg.roll_rate;
-  attitude_rates_reference.body_rate.y = -msg.pitch_rate;
-  attitude_rates_reference.body_rate.z = msg.yaw_rate;
-
-  attitude_rates_reference.thrust = msg.total_thrust_normalized;
+  attitude_rates_reference.body_rate.x = flu_to_frd(0);
+  attitude_rates_reference.body_rate.y = flu_to_frd(1);
+  attitude_rates_reference.body_rate.z = flu_to_frd(2);
+  attitude_rates_reference.thrust      = msg.total_thrust_normalized;
 
   attitude_rates_reference.header.stamp = get_clock()->now();
 
