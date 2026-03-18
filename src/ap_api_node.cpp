@@ -416,6 +416,9 @@ void ApApiNode::subAttitudeRatesAndThrustReference(const laser_msgs::msg::Attitu
   /*   RCLCPP_ERROR(this->get_logger(), "Preflight Checks dont's Pass in Firmware!"); */
   /*   return; */
   /* } */
+  if (std::isnan(msg.total_thrust_normalized)) {
+    return;
+  }
 
   ardupilot_msgs::msg::AttitudeTarget attitude_rates_reference{};
   attitude_rates_reference.type_mask = 128;
@@ -427,7 +430,12 @@ void ApApiNode::subAttitudeRatesAndThrustReference(const laser_msgs::msg::Attitu
   attitude_rates_reference.body_rate.x = flu_to_frd(0);
   attitude_rates_reference.body_rate.y = flu_to_frd(1);
   attitude_rates_reference.body_rate.z = flu_to_frd(2);
-  attitude_rates_reference.thrust      = msg.total_thrust_normalized;
+
+  /* attitude_rates_reference.body_rate.x = msg.roll_rate; */
+  /* attitude_rates_reference.body_rate.y = -msg.pitch_rate; */
+  /* attitude_rates_reference.body_rate.z = -msg.yaw_rate; */
+  attitude_rates_reference.thrust      = (msg.total_thrust_normalized * 2) - 1;
+  /* attitude_rates_reference.thrust = msg.total_thrust_normalized; */
 
   attitude_rates_reference.header.stamp = get_clock()->now();
 
