@@ -434,7 +434,24 @@ void ApApiNode::subAttitudeRatesAndThrustReference(const laser_msgs::msg::Attitu
   /* attitude_rates_reference.body_rate.x = msg.roll_rate; */
   /* attitude_rates_reference.body_rate.y = -msg.pitch_rate; */
   /* attitude_rates_reference.body_rate.z = -msg.yaw_rate; */
-  attitude_rates_reference.thrust      = (msg.total_thrust_normalized * 2) - 1;
+  /* attitude_rates_reference.thrust = (msg.total_thrust_normalized * 2) - 1; */
+  attitude_rates_reference.thrust = msg.total_thrust_normalized;
+  double t_ap;
+  double t_px4 = msg.total_thrust_normalized;
+  double hover_thrust_px4 = 0.4;
+
+  if (t_px4 < hover_thrust_px4) {
+    // Escala o intervalo [0, h] para [-1, 0]
+    t_ap = (t_px4 / hover_thrust_px4) - 1.0;
+  } else {
+    // Escala o intervalo [h, 1] para [0, 1]
+    t_ap = (t_px4 - hover_thrust_px4) / (1.0 - hover_thrust_px4);
+  }
+
+  t_ap = std::clamp(t_ap, -1.0, 1.0);
+
+  /* attitude_rates_reference.thrust = t_ap; */
+  /* attitude_rates_reference.thrust = (msg.total_thrust_normalized * 2) - 1; */
   /* attitude_rates_reference.thrust = msg.total_thrust_normalized; */
 
   attitude_rates_reference.header.stamp = get_clock()->now();
