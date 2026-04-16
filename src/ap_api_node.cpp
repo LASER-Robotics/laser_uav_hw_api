@@ -308,6 +308,7 @@ void ApApiNode::subEstimatedPoseAp(const geometry_msgs::msg::PoseStamped &msg) {
   twist_body_frame(0) = twist_stamped_ap_.twist.linear.x;
   twist_body_frame(1) = twist_stamped_ap_.twist.linear.y;
   twist_body_frame(2) = twist_stamped_ap_.twist.linear.z;
+  q.coeffs() *= -1;
   q.normalize();
   twist_body_frame = q.conjugate().toRotationMatrix() * twist_body_frame;
 
@@ -435,9 +436,10 @@ void ApApiNode::subAttitudeRatesAndThrustReference(const laser_msgs::msg::Attitu
   /* attitude_rates_reference.body_rate.y = -msg.pitch_rate; */
   /* attitude_rates_reference.body_rate.z = -msg.yaw_rate; */
   /* attitude_rates_reference.thrust = (msg.total_thrust_normalized * 2) - 1; */
-  attitude_rates_reference.thrust = msg.total_thrust_normalized;
+  attitude_rates_reference.thrust                = msg.total_thrust_normalized;
+  attitude_rates_reference.use_raw_ang_reference = true;
   double t_ap;
-  double t_px4 = msg.total_thrust_normalized;
+  double t_px4            = msg.total_thrust_normalized;
   double hover_thrust_px4 = 0.4;
 
   if (t_px4 < hover_thrust_px4) {
