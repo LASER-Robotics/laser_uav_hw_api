@@ -144,8 +144,8 @@ private:
   laser_msgs::msg::UavControlDiagnostics control_manager_diagnostics_;
   px4_msgs::msg::ActuatorMotors          actuator_motors_reference_;
 
-  geometry_msgs::msg::Point position_offset_;
-  Eigen::Quaterniond        quaternion_offset_;
+  Eigen::Vector3d    position_offset_;
+  Eigen::Quaterniond quaternion_offset_;
 
   int target_system_;
 

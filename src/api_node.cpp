@@ -444,17 +444,12 @@ void ApiNode::subVehicleOdometryPx4(const px4_msgs::msg::VehicleOdometry &msg) {
 
   if (!has_px4_odometry_offset_) {
     Eigen::Vector3d ned_to_enu_tf(msg.position[0], msg.position[1], msg.position[2]);
-    ned_to_enu_tf = enuToNed(ned_to_enu_tf);
-
-    position_offset_.x = ned_to_enu_tf(0);
-    position_offset_.y = ned_to_enu_tf(1);
-    position_offset_.z = ned_to_enu_tf(2);
+    ned_to_enu_tf    = enuToNed(ned_to_enu_tf);
+    position_offset_ = ned_to_enu_tf;
 
     Eigen::Quaterniond ned_to_enu_orientation_tf(msg.q[0], msg.q[1], msg.q[2], msg.q[3]);
-
     quaternion_offset_ = enuToNedOrientation(ned_to_enu_orientation_tf);
     quaternion_offset_ = quaternion_offset_.normalized();
-    quaternion_offset_.coeffs() *= -1;
 
     has_px4_odometry_offset_ = true;
     return;
@@ -467,36 +462,39 @@ void ApiNode::subVehicleOdometryPx4(const px4_msgs::msg::VehicleOdometry &msg) {
 
   Eigen::Vector3d ned_to_enu_tf(msg.position[0], msg.position[1], msg.position[2]);
   ned_to_enu_tf = enuToNed(ned_to_enu_tf);
+  ned_to_enu_tf -= position_offset_;
+  ned_to_enu_tf = quaternion_offset_.inverse().normalized() * ned_to_enu_tf;
 
-  current_nav_odometry.pose.pose.position.x = ned_to_enu_tf(0) - position_offset_.x;
-  current_nav_odometry.pose.pose.position.y = ned_to_enu_tf(1) - position_offset_.y;
-  current_nav_odometry.pose.pose.position.z = ned_to_enu_tf(2) - position_offset_.z;
+  current_nav_odometry.pose.pose.position.x = ned_to_enu_tf(0);
+  current_nav_odometry.pose.pose.position.y = ned_to_enu_tf(1);
+  current_nav_odometry.pose.pose.position.z = ned_to_enu_tf(2);
 
-  Eigen::Quaterniond ned_to_enu_orientation_tf(msg.q[0], msg.q[1], msg.q[2], msg.q[3]);
-  ned_to_enu_orientation_tf = enuToNedOrientation(ned_to_enu_orientation_tf);
-  ned_to_enu_orientation_tf = ned_to_enu_orientation_tf.normalized();
-  ned_to_enu_orientation_tf.coeffs() *= -1;
-  ned_to_enu_orientation_tf = quaternion_offset_.inverse() * ned_to_enu_orientation_tf;
+  Eigen::Quaterniond absolute_orientation_tf(msg.q[0], msg.q[1], msg.q[2], msg.q[3]);
+  absolute_orientation_tf = enuToNedOrientation(absolute_orientation_tf).normalized();
 
-  // --- Multiply by -1 for adjust rotation
-  current_nav_odometry.pose.pose.orientation.x = ned_to_enu_orientation_tf.x();
-  current_nav_odometry.pose.pose.orientation.y = ned_to_enu_orientation_tf.y();
-  current_nav_odometry.pose.pose.orientation.z = ned_to_enu_orientation_tf.z();
-  current_nav_odometry.pose.pose.orientation.w = ned_to_enu_orientation_tf.w();
+  Eigen::Quaterniond relative_orientation_tf = quaternion_offset_.inverse() * absolute_orientation_tf;
+
+  current_nav_odometry.pose.pose.orientation.x = relative_orientation_tf.x();
+  current_nav_odometry.pose.pose.orientation.y = relative_orientation_tf.y();
+  current_nav_odometry.pose.pose.orientation.z = relative_orientation_tf.z();
+  current_nav_odometry.pose.pose.orientation.w = relative_orientation_tf.w();
 
   current_nav_odometry.pose.covariance = {msg.position_variance[0],    0, 0, 0, 0, 0, 0, msg.position_variance[1],    0, 0, 0, 0, 0, 0,
                                           msg.position_variance[2],    0, 0, 0, 0, 0, 0, msg.orientation_variance[0], 0, 0, 0, 0, 0, 0,
                                           msg.orientation_variance[1], 0, 0, 0, 0, 0, 0, msg.orientation_variance[2]};
 
-  ned_to_enu_tf(0) = msg.velocity[0];
-  ned_to_enu_tf(1) = msg.velocity[1];
-  ned_to_enu_tf(2) = msg.velocity[2];
-  ned_to_enu_tf    = enuToNed(ned_to_enu_tf);
-  ned_to_enu_tf    = ned_to_enu_orientation_tf.conjugate().normalized().toRotationMatrix() * ned_to_enu_tf;
+  Eigen::Vector3d vel_ned_tf;
+  vel_ned_tf(0) = msg.velocity[0];
+  vel_ned_tf(1) = msg.velocity[1];
+  vel_ned_tf(2) = msg.velocity[2];
 
-  current_nav_odometry.twist.twist.linear.x = ned_to_enu_tf(0);
-  current_nav_odometry.twist.twist.linear.y = ned_to_enu_tf(1);
-  current_nav_odometry.twist.twist.linear.z = ned_to_enu_tf(2);
+  Eigen::Vector3d vel_enu_tf = enuToNed(vel_ned_tf);
+
+  Eigen::Vector3d vel_body_flu = absolute_orientation_tf.inverse() * vel_enu_tf;
+
+  current_nav_odometry.twist.twist.linear.x = vel_body_flu(0);
+  current_nav_odometry.twist.twist.linear.y = vel_body_flu(1);
+  current_nav_odometry.twist.twist.linear.z = vel_body_flu(2);
 
   Eigen::Vector3d frd_to_flu;
   frd_to_flu << msg.angular_velocity[0], msg.angular_velocity[1], msg.angular_velocity[2];
@@ -506,9 +504,10 @@ void ApiNode::subVehicleOdometryPx4(const px4_msgs::msg::VehicleOdometry &msg) {
   current_nav_odometry.twist.twist.angular.y = frd_to_flu(1);
   current_nav_odometry.twist.twist.angular.z = frd_to_flu(2);
 
+  double default_angular_var            = 0.01;
   current_nav_odometry.twist.covariance = {msg.velocity_variance[0], 0, 0, 0, 0, 0, 0, msg.velocity_variance[1], 0, 0, 0, 0, 0, 0,
-                                           msg.velocity_variance[2], 0, 0, 0, 0, 0, 0, msg.velocity_variance[0], 0, 0, 0, 0, 0, 0,
-                                           msg.velocity_variance[1], 0, 0, 0, 0, 0, 0, msg.velocity_variance[2]};
+                                           msg.velocity_variance[2], 0, 0, 0, 0, 0, 0, default_angular_var,      0, 0, 0, 0, 0, 0,
+                                           default_angular_var,      0, 0, 0, 0, 0, 0, default_angular_var};
 
   pub_nav_odometry_->publish(current_nav_odometry);
 }
