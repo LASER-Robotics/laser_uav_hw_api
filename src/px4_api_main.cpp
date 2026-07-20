@@ -1,5 +1,6 @@
-#include <laser_uav_hw_api/px4_api_node.hpp>
 #include <rclcpp/rclcpp.hpp>
+
+#include <laser_uav_hw_api/px4_api_node.hpp>
 
 int main(int argc, char ** argv)
 {

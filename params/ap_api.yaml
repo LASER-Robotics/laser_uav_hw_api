@@ -1,0 +1,4 @@
+/**/**:
+  ros__parameters:
+    rate: # [Hz]
+      pub_api_diagnostic: 10.0
