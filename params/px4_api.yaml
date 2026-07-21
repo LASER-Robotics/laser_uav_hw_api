@@ -9,3 +9,7 @@
 
     rc:
       aux_logics: true
+
+    tf:
+      publish: false
+      inverted: false

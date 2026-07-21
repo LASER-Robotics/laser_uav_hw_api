@@ -1,9 +1,9 @@
-<?xml version="1.0"?>
+<?xml version="1.0" encoding="UTF-8"?>
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
-  <name>laser_uav_px4_api</name>
+  <name>laser_uav_hw_api</name>
   <version>0.1.0</version>
-  <description>This packages contains the api node from comunication with px4 autopilot</description>
+  <description>This packages contains the api node from comunication with px4 autopilot and ardupilot</description>
   <maintainer email="augustoviniciud@gmail.com">augusto</maintainer>
   <license>BSD</license>
 
@@ -15,6 +15,7 @@
   <depend>geometry_msgs</depend>
   <depend>std_srvs</depend>
   <depend>px4_msgs</depend>
+  <depend>ardupilot_msgs</depend>
   <depend>laser_msgs</depend>
 
   <test_depend>ament_lint_auto</test_depend>

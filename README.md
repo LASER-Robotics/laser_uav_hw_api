@@ -1,4 +1,7 @@
-# LASER UAV PX4 API
+# DEPRECATED
+
+## LASER UAV PX4 API
+
 
 This API serves as the communication bridge between the autopilot hardware and the high/low-level control systems on the companion computer, managing time synchronization and reference frame conversions.
 
