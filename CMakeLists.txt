@@ -10,7 +10,6 @@ if (CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options(-Wall -Wextra -Wpedantic)
 endif ()
 
-# Dependências obrigatórias para ambos (Core)
 find_package(ament_cmake REQUIRED)
 find_package(Eigen3 REQUIRED)
 find_package(rclcpp REQUIRED)
@@ -25,11 +24,9 @@ find_package(tf2 REQUIRED)
 find_package(tf2_msgs REQUIRED)
 find_package(tf2_ros REQUIRED)
 
-# Dependências opcionais (sem REQUIRED)
 find_package(px4_msgs QUIET)
 find_package(ardupilot_msgs QUIET)
 
-# Lista de dependências comuns aos dois nodes
 set(common_dependencies
     tf2
     tf2_msgs
@@ -47,7 +44,6 @@ set(common_dependencies
 
 include_directories(include ${EIGEN3_INCLUDE_DIR})
 
-# Lista para exportar no final do arquivo (ament_export_dependencies)
 set(exported_dependencies ${common_dependencies})
 
 # ==============================================================================
@@ -88,7 +84,7 @@ if (ardupilot_msgs_FOUND)
   list(APPEND exported_dependencies ardupilot_msgs)
 
   add_executable(ap_api src/ap_api_main.cpp)
-  cmake_minimum_required(VERSION 3.8)
+  add_library(ap_api_core SHARED src/ap_api_node.cpp)
   target_link_libraries(ap_api ap_api_core)
   ament_target_dependencies(ap_api_core ${ap_dependencies})
 
