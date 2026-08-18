@@ -514,7 +514,6 @@ void Px4ApiNode::on_vehicle_odometry_px4(const px4_msgs::msg::VehicleOdometry & 
   absolute_orientation_tf = enu_to_ned_orientation(absolute_orientation_tf).normalized();
   Eigen::Quaterniond relative_orientation_tf =
     quaternion_offset_.inverse() * absolute_orientation_tf;
-  relative_orientation_tf.coeffs() *= -1;
 
   current_nav_odometry.pose.pose.orientation.x = relative_orientation_tf.x();
   current_nav_odometry.pose.pose.orientation.y = relative_orientation_tf.y();
