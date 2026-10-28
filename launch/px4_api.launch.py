@@ -105,7 +105,7 @@ def generate_launch_description():
              ('/', uav_name, '/control_manager/attitude_rates_thrust')),
             (('/', uav_name, '/esc_status_px4_in'), ('/', uav_name, '/fmu/out/esc_status')),
             (('/', uav_name, '/px4_rc_in'), ('/', uav_name, '/fmu/out/manual_control_setpoint')),
-            (('/', uav_name, '/rc_to_goto_out'), ('/', uav_name, '/control_manager/goto_relative')),
+            (('/', uav_name, '/rc_to_goto_out'), ('/', uav_name, '/planning_manager/goto_relative')),
         ]
     )
 
