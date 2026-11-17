@@ -85,7 +85,7 @@ def generate_launch_description():
             (('/', uav_name, '/sensor_gyro_px4_in'), ('/', uav_name, '/fmu/out/sensor_gyro')),
             (('/', uav_name, '/sensor_accel_px4_in'), ('/', uav_name, '/fmu/out/sensor_accel')),
             (('/', uav_name, '/distance_sensor_px4_in'), ('/', uav_name, '/fmu/out/distance_sensor')),
-            (('/', uav_name, '/vehicle_status_px4_in'), ('/', uav_name, '/fmu/out/vehicle_status')),
+            (('/', uav_name, '/vehicle_status_px4_in'), ('/', uav_name, '/fmu/out/vehicle_status_v1')),
             (('/', uav_name, '/vehicle_control_mode_px4_in'),
              ('/', uav_name, '/fmu/out/vehicle_control_mode')),
             (('/', uav_name, '/control_manager_diagnostics_in'),
