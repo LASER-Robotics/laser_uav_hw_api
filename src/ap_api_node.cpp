@@ -250,12 +250,11 @@ void ApApiNode::on_estimated_pose_ap(const geometry_msgs::msg::PoseStamped & msg
 
   // Calculate alignment offsets on the first received odometry message
   if (!has_ap_odometry_offset_) {
-    position_offset_ = Eigen::Vector3d(
-      msg.pose.position.x, msg.pose.position.y, msg.pose.position.z);
+    Eigen::Vector3d ned_to_enu_tf(msg.pose.position.x, msg.pose.position.y, msg.pose.position.z);
+    position_offset_ = enu_to_ned(ned_to_enu_tf);
 
-    quaternion_offset_ = Eigen::Quaterniond(
-      msg.pose.orientation.w, msg.pose.orientation.x, msg.pose.orientation.y,
-      msg.pose.orientation.z).normalized();
+    Eigen::Quaterniond ned_to_enu_orientation_tf(msg.pose.orientation.w, msg.pose.orientation.x, msg.pose.orientation.y, msg.pose.orientation.z);
+    quaternion_offset_ = enu_to_ned_orientation(ned_to_enu_orientation_tf).normalized();
 
     has_ap_odometry_offset_ = true;
     return;
@@ -268,35 +267,31 @@ void ApApiNode::on_estimated_pose_ap(const geometry_msgs::msg::PoseStamped & msg
   current_nav_odometry.header.frame_id = uav_name_ + "/fcu";
 
   // Apply position and orientation offsets relative to the initial pose
-  Eigen::Vector3d position_enu(
-    msg.pose.position.x, msg.pose.position.y, msg.pose.position.z);
-  position_enu = position_enu - position_offset_;
-  position_enu = quaternion_offset_.inverse().normalized() * position_enu;
+  Eigen::Vector3d ned_to_enu_tf(msg.pose.position.x, msg.pose.position.y, msg.pose.position.z);
+  ned_to_enu_tf = enu_to_ned(ned_to_enu_tf) - position_offset_;
+  ned_to_enu_tf = quaternion_offset_.inverse().normalized() * ned_to_enu_tf;
 
-  current_nav_odometry.pose.pose.position.x = position_enu(0);
-  current_nav_odometry.pose.pose.position.y = position_enu(1);
-  current_nav_odometry.pose.pose.position.z = position_enu(2);
+  current_nav_odometry.pose.pose.position.x = ned_to_enu_tf(0);
+  current_nav_odometry.pose.pose.position.y = ned_to_enu_tf(1);
+  current_nav_odometry.pose.pose.position.z = ned_to_enu_tf(2);
 
-  Eigen::Quaterniond absolute_orientation(
-    msg.pose.orientation.w, msg.pose.orientation.x, msg.pose.orientation.y,
-    msg.pose.orientation.z);
-  absolute_orientation.normalize();
-  Eigen::Quaterniond relative_orientation =
-    quaternion_offset_.inverse() * absolute_orientation;
+  Eigen::Quaterniond absolute_orientation_tf(msg.pose.orientation.w, msg.pose.orientation.x, msg.pose.orientation.y, msg.pose.orientation.z);
+  absolute_orientation_tf = enu_to_ned_orientation(absolute_orientation_tf).normalized();
+  Eigen::Quaterniond relative_orientation_tf = quaternion_offset_.inverse() * absolute_orientation_tf;
 
-  current_nav_odometry.pose.pose.orientation.x = relative_orientation.x();
-  current_nav_odometry.pose.pose.orientation.y = relative_orientation.y();
-  current_nav_odometry.pose.pose.orientation.z = relative_orientation.z();
-  current_nav_odometry.pose.pose.orientation.w = relative_orientation.w();
+  current_nav_odometry.pose.pose.orientation.x = relative_orientation_tf.x();
+  current_nav_odometry.pose.pose.orientation.y = relative_orientation_tf.y();
+  current_nav_odometry.pose.pose.orientation.z = relative_orientation_tf.z();
+  current_nav_odometry.pose.pose.orientation.w = relative_orientation_tf.w();
 
-  const Eigen::Matrix3d rot_mat = relative_orientation.toRotationMatrix();
+  const Eigen::Matrix3d rot_mat = relative_orientation_tf.toRotationMatrix();
   const Eigen::Vector3d euler_rpy(
     std::atan2(rot_mat(2, 1), rot_mat(2, 2)),
     std::asin(std::clamp(-rot_mat(2, 0), -1.0, 1.0)),
     std::atan2(rot_mat(1, 0), rot_mat(0, 0)));
 
   const Eigen::Vector3d position_variance =
-    compute_window_variance(position_window_, position_enu);
+    compute_window_variance(position_window_, ned_to_enu_tf);
   const Eigen::Vector3d orientation_variance =
     compute_window_variance(orientation_window_, euler_rpy);
 
@@ -306,39 +301,29 @@ void ApApiNode::on_estimated_pose_ap(const geometry_msgs::msg::PoseStamped & msg
     orientation_variance(1), 0, 0, 0, 0, 0, 0, orientation_variance(2)};
 
   // Rotate world velocity into the UAV body frame using the inverse orientation quaternion
-  Eigen::Quaterniond q(
-    msg.pose.orientation.w, msg.pose.orientation.x, msg.pose.orientation.y, msg.pose.orientation.z);
+  Eigen::Vector3d vel_ned_tf(twist_stamped_ap_.twist.linear.x, twist_stamped_ap_.twist.linear.y, twist_stamped_ap_.twist.linear.z);
+  Eigen::Vector3d vel_enu_tf = enu_to_ned(vel_ned_tf);
+  Eigen::Vector3d vel_body_flu = absolute_orientation_tf.inverse() * vel_enu_tf;
 
-  Eigen::Vector3d twist_body_frame(
-    twist_stamped_ap_.twist.linear.x, twist_stamped_ap_.twist.linear.y,
-    twist_stamped_ap_.twist.linear.z);
-
-  q.coeffs() *= -1.0;
-  q.normalize();
-  twist_body_frame = q.conjugate().toRotationMatrix() * twist_body_frame;
-
-  current_nav_odometry.twist.twist.linear.x = twist_body_frame(0);
-  current_nav_odometry.twist.twist.linear.y = twist_body_frame(1);
-  current_nav_odometry.twist.twist.linear.z = twist_body_frame(2);
+  current_nav_odometry.twist.twist.linear.x = vel_body_flu(0);
+  current_nav_odometry.twist.twist.linear.y = vel_body_flu(1);
+  current_nav_odometry.twist.twist.linear.z = vel_body_flu(2);
 
   // Convert angular rates to Body Frame (FLU)
-  Eigen::Vector3d flu_to_frd_vec(
-    twist_stamped_ap_.twist.angular.x, twist_stamped_ap_.twist.angular.y,
-    twist_stamped_ap_.twist.angular.z);
+  Eigen::Vector3d frd_to_flu_vec(twist_stamped_ap_.twist.angular.x, twist_stamped_ap_.twist.angular.y, twist_stamped_ap_.twist.angular.z);
+  frd_to_flu_vec = frd_to_flu(frd_to_flu_vec);
 
-  current_nav_odometry.twist.twist.angular.x = flu_to_frd_vec(0);
-  current_nav_odometry.twist.twist.angular.y = flu_to_frd_vec(1);
-  current_nav_odometry.twist.twist.angular.z = flu_to_frd_vec(2);
+  current_nav_odometry.twist.twist.angular.x = frd_to_flu_vec(0);
+  current_nav_odometry.twist.twist.angular.y = frd_to_flu_vec(1);
+  current_nav_odometry.twist.twist.angular.z = frd_to_flu_vec(2);
 
   const Eigen::Vector3d velocity_variance =
-    compute_window_variance(linear_velocity_window_, twist_body_frame);
-  const Eigen::Vector3d angular_variance =
-    compute_window_variance(angular_velocity_window_, flu_to_frd_vec);
+    compute_window_variance(linear_velocity_window_, vel_body_flu);
 
   current_nav_odometry.twist.covariance = {
     velocity_variance(0), 0, 0, 0, 0, 0, 0, velocity_variance(1), 0, 0, 0, 0, 0, 0,
-    velocity_variance(2), 0, 0, 0, 0, 0, 0, angular_variance(0), 0, 0, 0, 0, 0, 0,
-    angular_variance(1), 0, 0, 0, 0, 0, 0, angular_variance(2)};
+    velocity_variance(2), 0, 0, 0, 0, 0, 0, 0.01, 0, 0, 0, 0, 0, 0,
+    0.01, 0, 0, 0, 0, 0, 0, 0.01};
 
   pub_nav_odometry_->publish(current_nav_odometry);
 
