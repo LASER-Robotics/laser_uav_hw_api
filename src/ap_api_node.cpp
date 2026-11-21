@@ -106,6 +106,13 @@ CallbackReturn ApApiNode::on_cleanup(const rclcpp_lifecycle::State &)
   tmr_pub_api_diagnostics_.reset();
   pub_attitude_rates_reference_ap_.reset();
   sub_attitude_rates_and_thrust_reference_.reset();
+
+  has_ap_odometry_offset_ = false;
+  position_window_.clear();
+  orientation_window_.clear();
+  linear_velocity_window_.clear();
+  angular_velocity_window_.clear();
+
   return CallbackReturn::SUCCESS;
 }
 /* //} */
@@ -241,12 +248,62 @@ void ApApiNode::on_estimated_pose_ap(const geometry_msgs::msg::PoseStamped & msg
     return;
   }
 
+  // Calculate alignment offsets on the first received odometry message
+  if (!has_ap_odometry_offset_) {
+    position_offset_ = Eigen::Vector3d(
+      msg.pose.position.x, msg.pose.position.y, msg.pose.position.z);
+
+    quaternion_offset_ = Eigen::Quaterniond(
+      msg.pose.orientation.w, msg.pose.orientation.x, msg.pose.orientation.y,
+      msg.pose.orientation.z).normalized();
+
+    has_ap_odometry_offset_ = true;
+    return;
+  }
+
   // Construct standard ROS 2 Odometry message combining estimated pose and twist
   nav_msgs::msg::Odometry current_nav_odometry{};
   current_nav_odometry.child_frame_id = uav_name_ + "/hw_api_odometry";
   current_nav_odometry.header.stamp = get_clock()->now();
   current_nav_odometry.header.frame_id = uav_name_ + "/fcu";
-  current_nav_odometry.pose.pose = msg.pose;
+
+  // Apply position and orientation offsets relative to the initial pose
+  Eigen::Vector3d position_enu(
+    msg.pose.position.x, msg.pose.position.y, msg.pose.position.z);
+  position_enu = position_enu - position_offset_;
+  position_enu = quaternion_offset_.inverse().normalized() * position_enu;
+
+  current_nav_odometry.pose.pose.position.x = position_enu(0);
+  current_nav_odometry.pose.pose.position.y = position_enu(1);
+  current_nav_odometry.pose.pose.position.z = position_enu(2);
+
+  Eigen::Quaterniond absolute_orientation(
+    msg.pose.orientation.w, msg.pose.orientation.x, msg.pose.orientation.y,
+    msg.pose.orientation.z);
+  absolute_orientation.normalize();
+  Eigen::Quaterniond relative_orientation =
+    quaternion_offset_.inverse() * absolute_orientation;
+
+  current_nav_odometry.pose.pose.orientation.x = relative_orientation.x();
+  current_nav_odometry.pose.pose.orientation.y = relative_orientation.y();
+  current_nav_odometry.pose.pose.orientation.z = relative_orientation.z();
+  current_nav_odometry.pose.pose.orientation.w = relative_orientation.w();
+
+  const Eigen::Matrix3d rot_mat = relative_orientation.toRotationMatrix();
+  const Eigen::Vector3d euler_rpy(
+    std::atan2(rot_mat(2, 1), rot_mat(2, 2)),
+    std::asin(std::clamp(-rot_mat(2, 0), -1.0, 1.0)),
+    std::atan2(rot_mat(1, 0), rot_mat(0, 0)));
+
+  const Eigen::Vector3d position_variance =
+    compute_window_variance(position_window_, position_enu);
+  const Eigen::Vector3d orientation_variance =
+    compute_window_variance(orientation_window_, euler_rpy);
+
+  current_nav_odometry.pose.covariance = {
+    position_variance(0), 0, 0, 0, 0, 0, 0, position_variance(1), 0, 0, 0, 0, 0, 0,
+    position_variance(2), 0, 0, 0, 0, 0, 0, orientation_variance(0), 0, 0, 0, 0, 0, 0,
+    orientation_variance(1), 0, 0, 0, 0, 0, 0, orientation_variance(2)};
 
   // Rotate world velocity into the UAV body frame using the inverse orientation quaternion
   Eigen::Quaterniond q(
@@ -272,6 +329,16 @@ void ApApiNode::on_estimated_pose_ap(const geometry_msgs::msg::PoseStamped & msg
   current_nav_odometry.twist.twist.angular.x = flu_to_frd_vec(0);
   current_nav_odometry.twist.twist.angular.y = flu_to_frd_vec(1);
   current_nav_odometry.twist.twist.angular.z = flu_to_frd_vec(2);
+
+  const Eigen::Vector3d velocity_variance =
+    compute_window_variance(linear_velocity_window_, twist_body_frame);
+  const Eigen::Vector3d angular_variance =
+    compute_window_variance(angular_velocity_window_, flu_to_frd_vec);
+
+  current_nav_odometry.twist.covariance = {
+    velocity_variance(0), 0, 0, 0, 0, 0, 0, velocity_variance(1), 0, 0, 0, 0, 0, 0,
+    velocity_variance(2), 0, 0, 0, 0, 0, 0, angular_variance(0), 0, 0, 0, 0, 0, 0,
+    angular_variance(1), 0, 0, 0, 0, 0, 0, angular_variance(2)};
 
   pub_nav_odometry_->publish(current_nav_odometry);
 
@@ -424,6 +491,33 @@ Eigen::Vector3d ApApiNode::frd_to_flu(Eigen::Vector3d p)
 Eigen::Quaterniond ApApiNode::enu_to_ned_orientation(Eigen::Quaterniond q)
 {
   return (ned_enu_quaternion_rotation_ * q) * frd_flu_rotation_;
+}
+/* //} */
+
+/* compute_window_variance() //{ */
+Eigen::Vector3d ApApiNode::compute_window_variance(
+  std::deque<Eigen::Vector3d> & window, const Eigen::Vector3d & sample)
+{
+  window.push_back(sample);
+  if (window.size() > kVarianceWindowSize) {
+    window.pop_front();
+  }
+  if (window.size() < 2) {
+    return Eigen::Vector3d::Zero();
+  }
+
+  Eigen::Vector3d mean = Eigen::Vector3d::Zero();
+  for (const auto & val : window) {
+    mean += val;
+  }
+  mean /= static_cast<double>(window.size());
+
+  Eigen::Vector3d sum_sq_diff = Eigen::Vector3d::Zero();
+  for (const auto & val : window) {
+    const Eigen::Vector3d diff = val - mean;
+    sum_sq_diff += diff.cwiseProduct(diff);
+  }
+  return sum_sq_diff / static_cast<double>(window.size() - 1);
 }
 /* //} */
 

@@ -4,6 +4,7 @@
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp_lifecycle/lifecycle_node.hpp"
 
+#include <deque>
 #include <memory>
 #include <regex>
 #include <string>
@@ -49,6 +50,10 @@ private:
   Eigen::Vector3d enu_to_ned(Eigen::Vector3d p);
   Eigen::Vector3d frd_to_flu(Eigen::Vector3d p);
   Eigen::Quaterniond enu_to_ned_orientation(Eigen::Quaterniond q);
+
+  static constexpr std::size_t kVarianceWindowSize = 10;
+  Eigen::Vector3d compute_window_variance(
+    std::deque<Eigen::Vector3d> & window, const Eigen::Vector3d & sample);
 
   // --- Lifecycle Node Callbacks ---
   CallbackReturn on_configure(const rclcpp_lifecycle::State & state) override;
@@ -117,11 +122,19 @@ private:
   sensor_msgs::msg::Imu imu_;
   laser_msgs::msg::ApiPx4Diagnostics api_diagnostics_;
 
+  Eigen::Vector3d position_offset_;
+  Eigen::Quaterniond quaternion_offset_;
+  std::deque<Eigen::Vector3d> position_window_;
+  std::deque<Eigen::Vector3d> orientation_window_;
+  std::deque<Eigen::Vector3d> linear_velocity_window_;
+  std::deque<Eigen::Vector3d> angular_velocity_window_;
+
   // --- Node Parameters ---
   double rate_pub_api_diagnostics_{10.0};
   std::string uav_name_{""};
   bool publish_tf_odom_{false};
   bool inverted_tf_{true};
+  bool has_ap_odometry_offset_{false};
   bool real_uav_{false};
   bool offboard_is_enabled_{false};
   bool is_active_{false};
