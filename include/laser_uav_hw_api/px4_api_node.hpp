@@ -19,7 +19,7 @@
 
 #include <laser_msgs/msg/api_px4_diagnostics.hpp>
 #include <laser_msgs/msg/attitude_rates_and_thrust.hpp>
-#include <laser_msgs/msg/motor_speed.hpp>
+#include <laser_msgs/msg/motor_speed_stamped.hpp>
 #include <laser_msgs/msg/pose_with_heading.hpp>
 #include <laser_msgs/msg/uav_control_diagnostics.hpp>
 
@@ -106,8 +106,9 @@ private:
     sub_control_manager_diagnostics_;
   void on_control_manager_diagnostics(const laser_msgs::msg::UavControlDiagnostics & msg);
 
-  rclcpp::Subscription<laser_msgs::msg::MotorSpeed>::ConstSharedPtr sub_motor_speed_reference_;
-  void on_motor_speed_reference(const laser_msgs::msg::MotorSpeed & msg);
+  rclcpp::Subscription<laser_msgs::msg::MotorSpeedStamped>::ConstSharedPtr
+    sub_motor_speed_reference_;
+  void on_motor_speed_reference(const laser_msgs::msg::MotorSpeedStamped & msg);
 
   rclcpp::Subscription<laser_msgs::msg::AttitudeRatesAndThrust>::SharedPtr
     sub_attitude_rates_and_thrust_reference_;
@@ -118,7 +119,7 @@ private:
   rclcpp_lifecycle::LifecyclePublisher<nav_msgs::msg::Odometry>::SharedPtr pub_nav_odometry_;
   rclcpp_lifecycle::LifecyclePublisher<sensor_msgs::msg::Imu>::SharedPtr pub_imu_;
   rclcpp_lifecycle::LifecyclePublisher<sensor_msgs::msg::Range>::SharedPtr pub_garmin_;
-  rclcpp_lifecycle::LifecyclePublisher<laser_msgs::msg::MotorSpeed>::SharedPtr
+  rclcpp_lifecycle::LifecyclePublisher<laser_msgs::msg::MotorSpeedStamped>::SharedPtr
     pub_motor_speed_estimation_;
   rclcpp_lifecycle::LifecyclePublisher<px4_msgs::msg::ActuatorMotors>::SharedPtr
     pub_motor_speed_reference_px4_;

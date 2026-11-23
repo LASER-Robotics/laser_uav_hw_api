@@ -253,7 +253,7 @@ void Px4ApiNode::config_pub_sub()
       "esc_status_px4_in", rclcpp::SensorDataQoS(),
       std::bind(&Px4ApiNode::on_esc_status_px4, this, std::placeholders::_1));
     pub_motor_speed_estimation_ =
-      create_publisher<laser_msgs::msg::MotorSpeed>("motor_speed_estimation_out", 10);
+      create_publisher<laser_msgs::msg::MotorSpeedStamped>("motor_speed_estimation_out", 10);
   }
 
   // PX4 uORB control command publishers
@@ -276,7 +276,7 @@ void Px4ApiNode::config_pub_sub()
   if (control_input_mode_ == "individual_thrust") {
     pub_motor_speed_reference_px4_ =
       create_publisher<px4_msgs::msg::ActuatorMotors>("motor_speed_reference_px4_out", 10);
-    sub_motor_speed_reference_ = create_subscription<laser_msgs::msg::MotorSpeed>(
+    sub_motor_speed_reference_ = create_subscription<laser_msgs::msg::MotorSpeedStamped>(
       "motor_speed_reference_in", 1,
       std::bind(&Px4ApiNode::on_motor_speed_reference, this, std::placeholders::_1));
   } else if (control_input_mode_ == "angular_rates_and_thrust") {
@@ -356,11 +356,12 @@ void Px4ApiNode::on_esc_status_px4(const px4_msgs::msg::EscStatus & msg)
 
   // Convert RPM reported by ESC telemetry into angular speed (rad/s).
   // Conversion factor: 2 * PI / 60 ≈ 0.1047
-  laser_msgs::msg::MotorSpeed motor_speed_estimation;
-  for (int i = 0; i < static_cast<int>(msg.esc_count); i++) {
-    motor_speed_estimation.data.push_back(msg.esc[i].esc_rpm * 0.1047f);
+  laser_msgs::msg::MotorSpeedStamped motor_speed_estimation;
+  motor_speed_estimation.header.stamp = get_clock()->now();
+  for (int i = 0; i < static_cast<int>(msg.esc_count) && i < static_cast<int>(msg.esc.size()); i++) {
+    motor_speed_estimation.data.data.push_back(msg.esc[i].esc_rpm * 0.1047f);
   }
-  motor_speed_estimation.unit_of_measurement = "rad/s";
+  motor_speed_estimation.data.unit_of_measurement = "rad/s";
   pub_motor_speed_estimation_->publish(motor_speed_estimation);
 }
 /* //} */
@@ -694,7 +695,7 @@ void Px4ApiNode::on_attitude_rates_and_thrust_reference(
 /* //} */
 
 /* on_motor_speed_reference() //{ */
-void Px4ApiNode::on_motor_speed_reference(const laser_msgs::msg::MotorSpeed & msg)
+void Px4ApiNode::on_motor_speed_reference(const laser_msgs::msg::MotorSpeedStamped & msg)
 {
   if (!is_active_ || !offboard_is_enabled_) {
     return;
@@ -705,8 +706,10 @@ void Px4ApiNode::on_motor_speed_reference(const laser_msgs::msg::MotorSpeed & ms
     return;
   }
 
-  for (size_t i = 0; i < msg.data.size() && i < actuator_motors_reference_.control.size(); ++i) {
-    actuator_motors_reference_.control[i] = msg.data[i];
+  for (size_t i = 0;
+    i < msg.data.data.size() && i < actuator_motors_reference_.control.size(); ++i)
+  {
+    actuator_motors_reference_.control[i] = msg.data.data[i];
   }
 
   actuator_motors_reference_.timestamp = get_clock()->now().nanoseconds() / 1000;
