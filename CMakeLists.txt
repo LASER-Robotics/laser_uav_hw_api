@@ -63,13 +63,16 @@ if (px4_msgs_FOUND)
   target_include_directories(px4_api_core PRIVATE src/include)
   rclcpp_components_register_nodes(px4_api_core "laser_uav_hw_api::Px4ApiNode")
 
+  add_executable(fast_lio_px4_bridge src/fast_lio_px4_bridge.cpp)
+  ament_target_dependencies(fast_lio_px4_bridge rclcpp nav_msgs px4_msgs)
+
   install(
     TARGETS px4_api_core
     ARCHIVE DESTINATION lib
     LIBRARY DESTINATION lib
     RUNTIME DESTINATION bin
     )
-  install(TARGETS px4_api RUNTIME DESTINATION lib/${PROJECT_NAME})
+  install(TARGETS px4_api fast_lio_px4_bridge RUNTIME DESTINATION lib/${PROJECT_NAME})
 else ()
   message(WARNING "px4_msgs NOT found! Skipping PX4 API build.")
 endif ()
@@ -109,6 +112,24 @@ install(DIRECTORY include/ DESTINATION include/)
 install(DIRECTORY launch params DESTINATION share/${PROJECT_NAME})
 
 if (BUILD_TESTING)
+  if(px4_msgs_FOUND)
+    find_package(Python3 REQUIRED COMPONENTS Interpreter)
+    add_test(NAME test_fast_lio_px4_bridge
+      COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test/test_fast_lio_px4_bridge.py
+      $<TARGET_FILE:fast_lio_px4_bridge>)
+    set_tests_properties(test_fast_lio_px4_bridge PROPERTIES TIMEOUT 30)
+    set_property(TEST test_fast_lio_px4_bridge PROPERTY ENVIRONMENT
+      "ROS_DOMAIN_ID=184" "ROS_LOCALHOST_ONLY=1" "ROS_LOG_DIR=/tmp/fast_lio_bridge_test_logs"
+      "PYTHONDONTWRITEBYTECODE=1")
+    add_executable(test_px4_flight_modes test/test_px4_flight_modes.cpp)
+    target_link_libraries(test_px4_flight_modes px4_api_core)
+    ament_target_dependencies(test_px4_flight_modes ${px4_dependencies})
+    add_test(NAME test_px4_flight_modes COMMAND test_px4_flight_modes)
+    set_tests_properties(test_px4_flight_modes PROPERTIES TIMEOUT 30)
+    set_property(TEST test_px4_flight_modes PROPERTY ENVIRONMENT
+      "ROS_DOMAIN_ID=183" "ROS_LOCALHOST_ONLY=1" "ROS_LOG_DIR=/tmp/px4_hold_test_logs"
+      "LD_LIBRARY_PATH=$<TARGET_FILE_DIR:px4_api_core>:$ENV{LD_LIBRARY_PATH}")
+  endif()
   find_package(ament_lint_auto REQUIRED)
   set(ament_cmake_copyright_FOUND TRUE)
   set(ament_cmake_cpplint_FOUND TRUE)

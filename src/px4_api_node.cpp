@@ -112,6 +112,7 @@ CallbackReturn Px4ApiNode::on_activate(const rclcpp_lifecycle::State &)
 CallbackReturn Px4ApiNode::on_deactivate(const rclcpp_lifecycle::State &)
 {
   RCLCPP_INFO(get_logger(), "Deactivating");
+  finish_flight_mode_request(false, "Flight-mode request interrupted: API deactivated.");
   pub_vehicle_command_px4_->on_deactivate();
   pub_offboard_control_mode_px4_->on_deactivate();
   pub_nav_odometry_->on_deactivate();
@@ -142,6 +143,10 @@ CallbackReturn Px4ApiNode::on_deactivate(const rclcpp_lifecycle::State &)
 CallbackReturn Px4ApiNode::on_cleanup(const rclcpp_lifecycle::State &)
 {
   RCLCPP_INFO(get_logger(), "Cleaning up");
+  finish_flight_mode_request(false, "Flight-mode request interrupted: API cleaned up.");
+  tmr_mode_timeout_.reset();
+  srv_hold_.reset();
+  srv_land_.reset();
   sub_vehicle_odometry_px4_.reset();
   sub_vehicle_gps_position_px4_.reset();
   sub_sensor_gyro_px4_.reset();
@@ -184,6 +189,7 @@ CallbackReturn Px4ApiNode::on_cleanup(const rclcpp_lifecycle::State &)
 CallbackReturn Px4ApiNode::on_shutdown(const rclcpp_lifecycle::State &)
 {
   RCLCPP_INFO(get_logger(), "Shutting down");
+  finish_flight_mode_request(false, "Flight-mode request interrupted: API shut down.");
   return CallbackReturn::SUCCESS;
 }
 /* //} */
@@ -315,7 +321,17 @@ void Px4ApiNode::config_services()
   srv_disarm_ = create_service<std_srvs::srv::Trigger>(
     "disarm",
     std::bind(&Px4ApiNode::on_srv_disarm, this, std::placeholders::_1, std::placeholders::_2));
-  clt_land_ = create_client<std_srvs::srv::Trigger>("land");
+  srv_hold_ = create_service<std_srvs::srv::Trigger>(
+    "hold",
+    std::bind(
+      &Px4ApiNode::on_srv_flight_mode, this, std::placeholders::_1,
+      std::placeholders::_2, std::placeholders::_3));
+  srv_land_ = create_service<std_srvs::srv::Trigger>(
+    "land",
+    std::bind(
+      &Px4ApiNode::on_srv_flight_mode, this, std::placeholders::_1,
+      std::placeholders::_2, std::placeholders::_3));
+  clt_control_manager_land_ = create_client<std_srvs::srv::Trigger>("control_manager_land");
 }
 /* //} */
 
@@ -387,7 +403,7 @@ void Px4ApiNode::on_rc_px4(const px4_msgs::msg::ManualControlSetpoint & msg)
   if (count_rc_aux_ == 2 && (msg.timestamp - last_rc_timestamp_) / 1000000.0 > 1.0) {
     RCLCPP_INFO(get_logger(), "Calling landing via RC trigger");
     auto request = std::make_shared<std_srvs::srv::Trigger::Request>();
-    clt_land_->async_send_request(
+    clt_control_manager_land_->async_send_request(
       request, [this](rclcpp::Client<std_srvs::srv::Trigger>::SharedFuture future) {
         auto response = future.get();
         RCLCPP_INFO(
@@ -463,6 +479,16 @@ void Px4ApiNode::on_vehicle_status_px4(const px4_msgs::msg::VehicleStatus & msg)
     fw_preflight_checks_pass_ = msg.pre_flight_checks_pass;
   }
   api_diagnostics_.preflight_checks_passed = msg.pre_flight_checks_pass;
+  if (mode_request_header_) {
+    const bool land = pending_mode_service_ == srv_land_;
+    const auto target_mode = land ? px4_msgs::msg::VehicleStatus::NAVIGATION_STATE_AUTO_LAND :
+      px4_msgs::msg::VehicleStatus::NAVIGATION_STATE_AUTO_LOITER;
+    if (msg.nav_state == target_mode) {
+      finish_flight_mode_request(
+        true, land ? "PX4 Land mode confirmed (AUTO_LAND)." :
+        "PX4 Hold mode confirmed (AUTO_LOITER).");
+    }
+  }
 }
 /* //} */
 
@@ -484,27 +510,23 @@ void Px4ApiNode::on_vehicle_odometry_px4(const px4_msgs::msg::VehicleOdometry & 
     return;
   }
 
-  // Calculate alignment offsets on the first received odometry message
+  // Rebase the origin without rotating ENU axes by the initial attitude.
   if (!has_px4_odometry_offset_) {
     Eigen::Vector3d ned_to_enu_tf(msg.position[0], msg.position[1], msg.position[2]);
     position_offset_ = enu_to_ned(ned_to_enu_tf);
-
-    Eigen::Quaterniond ned_to_enu_orientation_tf(msg.q[0], msg.q[1], msg.q[2], msg.q[3]);
-    quaternion_offset_ = enu_to_ned_orientation(ned_to_enu_orientation_tf).normalized();
 
     has_px4_odometry_offset_ = true;
     return;
   }
 
   nav_msgs::msg::Odometry current_nav_odometry{};
-  current_nav_odometry.child_frame_id = uav_name_ + "/hw_api_odometry";
+  current_nav_odometry.child_frame_id = uav_name_ + "/fcu";
   current_nav_odometry.header.stamp = get_clock()->now();
-  current_nav_odometry.header.frame_id = uav_name_ + "/fcu";
+  current_nav_odometry.header.frame_id = uav_name_ + "/odometry";
 
   // Apply position offset and rotate coordinate system from PX4 NED to ROS ENU
   Eigen::Vector3d ned_to_enu_tf(msg.position[0], msg.position[1], msg.position[2]);
   ned_to_enu_tf = enu_to_ned(ned_to_enu_tf) - position_offset_;
-  ned_to_enu_tf = quaternion_offset_.inverse().normalized() * ned_to_enu_tf;
 
   current_nav_odometry.pose.pose.position.x = ned_to_enu_tf(0);
   current_nav_odometry.pose.pose.position.y = ned_to_enu_tf(1);
@@ -512,13 +534,11 @@ void Px4ApiNode::on_vehicle_odometry_px4(const px4_msgs::msg::VehicleOdometry & 
 
   Eigen::Quaterniond absolute_orientation_tf(msg.q[0], msg.q[1], msg.q[2], msg.q[3]);
   absolute_orientation_tf = enu_to_ned_orientation(absolute_orientation_tf).normalized();
-  Eigen::Quaterniond relative_orientation_tf =
-    quaternion_offset_.inverse() * absolute_orientation_tf;
 
-  current_nav_odometry.pose.pose.orientation.x = relative_orientation_tf.x();
-  current_nav_odometry.pose.pose.orientation.y = relative_orientation_tf.y();
-  current_nav_odometry.pose.pose.orientation.z = relative_orientation_tf.z();
-  current_nav_odometry.pose.pose.orientation.w = relative_orientation_tf.w();
+  current_nav_odometry.pose.pose.orientation.x = absolute_orientation_tf.x();
+  current_nav_odometry.pose.pose.orientation.y = absolute_orientation_tf.y();
+  current_nav_odometry.pose.pose.orientation.z = absolute_orientation_tf.z();
+  current_nav_odometry.pose.pose.orientation.w = absolute_orientation_tf.w();
 
   current_nav_odometry.pose.covariance = {
     msg.position_variance[0],    0, 0, 0, 0, 0, 0, msg.position_variance[1],    0, 0, 0, 0, 0, 0,
@@ -745,6 +765,59 @@ void Px4ApiNode::on_srv_arm(
     response->success = false;
     response->message = "Arm request rejected: UAV is already armed or in flight.";
   }
+}
+/* //} */
+
+/* on_srv_flight_mode() //{ */
+void Px4ApiNode::on_srv_flight_mode(
+  const rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr service,
+  const std::shared_ptr<rmw_request_id_t> request_header,
+  [[maybe_unused]] const std::shared_ptr<std_srvs::srv::Trigger::Request> request)
+{
+  const bool land = service == srv_land_;
+  if (!is_active_ || (mode_request_header_ && (!land || pending_mode_service_ == srv_land_))) {
+    std_srvs::srv::Trigger::Response response;
+    response.success = false;
+    response.message = is_active_ ? "A flight-mode request is already pending." :
+      "PX4 API is inactive.";
+    service->send_response(*request_header, response);
+    return;
+  }
+
+  // Landing takes priority over a pending Hold request.
+  finish_flight_mode_request(false, "Hold request interrupted by PX4 Land request.");
+  // Defer the response so telemetry and the Offboard heartbeat keep running.
+  pending_mode_service_ = service;
+  mode_request_header_ = request_header;
+  tmr_mode_timeout_ = create_wall_timer(
+    std::chrono::seconds(3), [this, land]() {
+      finish_flight_mode_request(
+        false, std::string("PX4 ") + (land ? "Land" : "Hold") +
+        " was not confirmed within 3 seconds. Check position validity and failsafes.");
+    });
+  if (land) {
+    pub_vehicle_command_px4(px4_msgs::msg::VehicleCommand::VEHICLE_CMD_NAV_LAND);
+  } else {
+    // PX4 custom mode enabled, AUTO main mode, LOITER submode.
+    pub_vehicle_command_px4(
+      px4_msgs::msg::VehicleCommand::VEHICLE_CMD_DO_SET_MODE, 1.0f, 4.0f, 3.0f);
+  }
+}
+/* //} */
+
+/* finish_flight_mode_request() //{ */
+void Px4ApiNode::finish_flight_mode_request(bool success, const std::string & message)
+{
+  if (!mode_request_header_) {
+    return;
+  }
+  tmr_mode_timeout_->cancel();
+  std_srvs::srv::Trigger::Response response;
+  response.success = success;
+  response.message = message;
+  pending_mode_service_->send_response(*mode_request_header_, response);
+  mode_request_header_.reset();
+  pending_mode_service_.reset();
 }
 /* //} */
 

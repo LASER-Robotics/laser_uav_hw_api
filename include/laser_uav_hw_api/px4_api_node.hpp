@@ -146,7 +146,18 @@ private:
     const std::shared_ptr<std_srvs::srv::Trigger::Request> request,
     std::shared_ptr<std_srvs::srv::Trigger::Response> response);
 
-  rclcpp::Client<std_srvs::srv::Trigger>::SharedPtr clt_land_;
+  rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr srv_hold_;
+  rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr srv_land_;
+  void on_srv_flight_mode(
+    const rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr service,
+    const std::shared_ptr<rmw_request_id_t> request_header,
+    const std::shared_ptr<std_srvs::srv::Trigger::Request> request);
+  void finish_flight_mode_request(bool success, const std::string & message);
+  rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr pending_mode_service_;
+  std::shared_ptr<rmw_request_id_t> mode_request_header_;
+  rclcpp::TimerBase::SharedPtr tmr_mode_timeout_;
+
+  rclcpp::Client<std_srvs::srv::Trigger>::SharedPtr clt_control_manager_land_;
 
   // --- Timers ---
   rclcpp::TimerBase::SharedPtr tmr_pub_offboard_control_mode_px4_;
@@ -171,7 +182,6 @@ private:
   px4_msgs::msg::ActuatorMotors actuator_motors_reference_;
 
   Eigen::Vector3d position_offset_;
-  Eigen::Quaterniond quaternion_offset_;
 
   // --- Node Parameters ---
   std::string control_input_mode_{""};
