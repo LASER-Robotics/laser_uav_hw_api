@@ -44,6 +44,10 @@ The ArduPilot API rejects arm and disarm requests when `real_uav=true`. The PX4 
 
 ### PX4 interfaces
 
+For PX4 1.17, build against the `px4_msgs` message definitions matching the firmware.
+The API subscribes to `vehicle_status_v1`, while the FAST-LIO bridge sends
+`VehicleOdometry` to `vehicle_visual_odometry`.
+
 PX4 odometry uses a local origin taken from the first valid odometry sample, with earth-fixed ENU axes (`uav1/odometry`). The initial attitude does not rotate these axes or reset the heading: orientation is the PX4 attitude converted from NED/FRD to ENU/FLU, and twist is expressed in body FLU (`uav1/fcu`). Global ground-truth positions must also account for each UAV's spawn position when compared with this local origin.
 
 The PX4 node consumes these topics under `/uav1/fmu/out/`:
@@ -54,19 +58,19 @@ The PX4 node consumes these topics under `/uav1/fmu/out/`:
 | `vehicle_gps_position` | `px4_msgs/msg/SensorGps` |
 | `sensor_gyro`, `sensor_accel` | `px4_msgs/msg/SensorGyro`, `px4_msgs/msg/SensorAccel` |
 | `distance_sensor` | `px4_msgs/msg/DistanceSensor` |
-| `vehicle_status`, `vehicle_control_mode` | `px4_msgs/msg/VehicleStatus`, `px4_msgs/msg/VehicleControlMode` |
+| `vehicle_status_v1`, `vehicle_control_mode` | `px4_msgs/msg/VehicleStatus`, `px4_msgs/msg/VehicleControlMode` |
 | `esc_status` | `px4_msgs/msg/EscStatus`; used on real hardware. |
 | `manual_control_setpoint` | `px4_msgs/msg/ManualControlSetpoint`; used when `rc.aux_logics=true`. |
 
 | Direction | Topic | Type | Purpose |
 | --- | --- | --- | --- |
-| Input | `/uav1/control_manager/motor_speed_reference` | `laser_msgs/msg/MotorSpeed` | Normalized individual motor commands in `individual_thrust` mode. |
+| Input | `/uav1/control_manager/motor_speed_reference` | `laser_msgs/msg/MotorSpeedStamped` | Normalized individual motor commands in `individual_thrust` mode. |
 | Input | `/uav1/control_manager/diagnostics` | `laser_msgs/msg/UavControlDiagnostics` | Control state used by the API. |
 | Output | `/uav1/fmu/in/vehicle_command` | `px4_msgs/msg/VehicleCommand` | Firmware commands. |
 | Output | `/uav1/fmu/in/offboard_control_mode` | `px4_msgs/msg/OffboardControlMode` | Selects and maintains the offboard control interface. |
 | Output | `/uav1/fmu/in/actuator_motors` | `px4_msgs/msg/ActuatorMotors` | Individual motor commands. |
 | Output | `/uav1/fmu/in/vehicle_rates_setpoint` | `px4_msgs/msg/VehicleRatesSetpoint` | Body-rate and thrust commands. |
-| Output | `/uav1/hw_api/motor_speed_estimated` | `laser_msgs/msg/MotorSpeed` | Motor-speed estimates from ESC telemetry on real hardware. |
+| Output | `/uav1/hw_api/motor_speed_estimated` | `laser_msgs/msg/MotorSpeedStamped` | Motor-speed estimates from ESC telemetry on real hardware. |
 | Output | `/uav1/hw_api/garmin` | `sensor_msgs/msg/Range` | Rangefinder measurements. |
 | Output | `/uav1/control_manager/goto_relative` | `laser_msgs/msg/PoseWithHeading` | RC-derived relative commands when auxiliary logic is enabled. |
 
@@ -82,7 +86,7 @@ ros2 service call /uav1/hw_api/hold std_srvs/srv/Trigger '{}'
 
 This PX4-only service sends `VEHICLE_CMD_DO_SET_MODE` with custom main mode `AUTO` (4)
 and submode `LOITER` (3). It returns `success=true` only after a subsequent
-`vehicle_status` message reports `AUTO_LOITER`. An inactive API, another pending
+`vehicle_status_v1` message reports `AUTO_LOITER`. An inactive API, another pending
 Hold request, lifecycle interruption, or no confirmation within 3 seconds returns
 `success=false`. A timeout does not cancel the command already sent to PX4.
 The wait is asynchronous: the Offboard heartbeat continues while PX4 decides
@@ -102,7 +106,7 @@ local odometry to `/uav1/fmu/in/vehicle_visual_odometry`, configure EKF2 fusion,
 and set the EKF's geographic origin. Changing the ROS estimation-manager source
 alone does not change PX4's estimator. This service does not configure EKF2,
 inject odometry, arm the vehicle, or request a return to Offboard. See the PX4
-[Hold documentation](https://docs.px4.io/v1.15/en/flight_modes_mc/hold) and
+[Hold documentation](https://docs.px4.io/v1.17/en/flight_modes_mc/hold) and
 [external positioning setup](https://docs.px4.io/v1.15/en/ros/external_position_estimation#enabling-auto-modes-with-a-local-position).
 Check `NAV_MIN_LTR_ALT`: Hold can climb to this minimum altitude above Home.
 
@@ -115,7 +119,7 @@ ros2 service call /uav1/hw_api/land std_srvs/srv/Trigger '{}'
 ```
 
 This PX4-only service sends `VEHICLE_CMD_NAV_LAND` (21). It returns `success=true`
-when a subsequent `vehicle_status` reports `AUTO_LAND` (18), confirming entry into
+when a subsequent `vehicle_status_v1` reports `AUTO_LAND` (18), confirming entry into
 landing mode rather than touchdown. The firmware manages descent and landing
 detection; automatic disarming depends on `COM_DISARM_LAND`.
 
