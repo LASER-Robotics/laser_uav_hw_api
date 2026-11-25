@@ -54,6 +54,16 @@ def generate_launch_description():
             ]),
             description='Full path to the ROS 2 parameters YAML file.'
         ),
+        DeclareLaunchArgument(
+            'motor_speed_reference_topic',
+            default_value=('/', uav_name, '/control_manager/motor_speed_reference'),
+            description='Input topic for per-motor normalized throttle commands.'
+        ),
+        DeclareLaunchArgument(
+            'attitude_rates_thrust_topic',
+            default_value=('/', uav_name, '/control_manager/attitude_rates_thrust'),
+            description='Input topic for body rates and total normalized thrust commands.'
+        ),
     ]
 
     # --- Lifecycle Node Definition ---
@@ -100,9 +110,9 @@ def generate_launch_description():
             (('/', uav_name, '/motor_speed_estimation_out'),
              ('/', uav_name, '/hw_api/motor_speed_estimated')),
             (('/', uav_name, '/motor_speed_reference_in'),
-             ('/', uav_name, '/control_manager/motor_speed_reference')),
+             LaunchConfiguration('motor_speed_reference_topic')),
             (('/', uav_name, '/attitude_rates_thrust_in'),
-             ('/', uav_name, '/control_manager/attitude_rates_thrust')),
+             LaunchConfiguration('attitude_rates_thrust_topic')),
             (('/', uav_name, '/esc_status_px4_in'), ('/', uav_name, '/fmu/out/esc_status')),
             (('/', uav_name, '/px4_rc_in'), ('/', uav_name, '/fmu/out/manual_control_setpoint')),
             (('/', uav_name, '/rc_to_goto_out'), ('/', uav_name, '/control_manager/goto_relative')),
